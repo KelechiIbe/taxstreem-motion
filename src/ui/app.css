@@ -190,6 +190,7 @@ textarea.code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fon
 .asset audio { width: 100%; height: 30px; }
 .side-foot { border-top: 1px solid var(--line); padding: 12px 14px; }
 .keyrow { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-top: 1px solid var(--line); }
+.keyrow.sub { border-top: 0; padding: 0 0 12px 14px; margin-left: 2px; border-left: 2px solid var(--line); }
 .export-row { display: flex; flex-direction: column; gap: 6px; }
 .bar { height: 6px; background: var(--surface-2); border-radius: 6px; overflow: hidden; }
 .bar > div { height: 100%; background: var(--primary); transition: width 0.2s ease-out; }

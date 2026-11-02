@@ -1,5 +1,6 @@
 // Minimal Anthropic Messages client with a forced tool call, so replies are always structured.
 import { env } from "./http";
+import type { ClaudeCred } from "./keys";
 
 export const MODEL = () => env("MOTION_MODEL") || "claude-opus-5-5";
 
@@ -18,13 +19,13 @@ export interface Tool {
   input_schema: Record<string, unknown>;
 }
 
-export async function callTool<T>(o: { key: string; system: string; messages: Msg[]; tool: Tool; maxTokens?: number }): Promise<{ input: T; usage: { input: number; output: number } }> {
+export async function callTool<T>(o: { cred: ClaudeCred; system: string; messages: Msg[]; tool: Tool; maxTokens?: number }): Promise<{ input: T; usage: { input: number; output: number } }> {
   // Opus 5.5 doesn't accept a forced tool_choice, so the tool is offered ("auto") and the
   // system prompt says to call it; if Claude answers in prose instead, it is asked once more.
   let messages = o.messages;
   const usage = { input: 0, output: 0 };
   for (let attempt = 0; attempt < 2; attempt++) {
-    const out = await post(o.key, {
+    const out = await post(o.cred, {
       model: MODEL(),
       max_tokens: o.maxTokens ?? 16000,
       system: [{ type: "text", text: `${o.system}\n\nAlways answer by calling the ${o.tool.name} tool exactly once.`, cache_control: { type: "ephemeral" } }],
@@ -43,18 +44,32 @@ export async function callTool<T>(o: { key: string; system: string; messages: Ms
   throw new Error("Claude didn't return a video. Try again.");
 }
 
-async function post(key: string, payload: Record<string, unknown>): Promise<any> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify(payload),
+/** Turns Anthropic's error replies into something a non-engineer can act on. */
+export function claudeError(status: number, msg: string): string {
+  if (/not scoped to a workspace/i.test(msg))
+    return "This Anthropic key works across workspaces, so Claude also needs a workspace ID. An admin can add it under Settings → Anthropic workspace ID (copy it from the ID column at platform.claude.com/settings/workspaces), or save a key created for a single workspace instead.";
+  if (/must be a valid workspace ID/i.test(msg)) return "The Anthropic workspace ID in Settings isn't valid. Copy it again from the ID column at platform.claude.com/settings/workspaces.";
+  if (status === 404 && /workspace/i.test(msg)) return "Anthropic can't find that workspace for this key. Check the workspace ID in Settings, or that the key's owner is a member of that workspace.";
+  if (status === 401) return "Anthropic doesn't recognise this key. It may have been deleted, or a character went missing when it was copied. An admin can paste it again in Settings.";
+  if (status === 403) return `Anthropic refused the request (403): ${msg}. The key may not be allowed to use this workspace or model.`;
+  if (/credit balance/i.test(msg)) return "The Anthropic account is out of credit. Top it up at platform.claude.com/settings/billing.";
+  if (status === 429 || status === 529) return `Claude is busy right now (${status}). Try again in a minute.`;
+  return `Claude: ${msg}`;
+}
+
+export async function claudeFetch(cred: ClaudeCred, path: string, init: { method?: string; body?: unknown } = {}): Promise<any> {
+  const headers: Record<string, string> = { "content-type": "application/json", "x-api-key": cred.key, "anthropic-version": "2023-06-01" };
+  if (cred.workspace) headers["anthropic-workspace-id"] = cred.workspace;
+  const res = await fetch(`https://api.anthropic.com${path}`, {
+    method: init.method ?? (init.body ? "POST" : "GET"),
+    headers,
+    body: init.body ? JSON.stringify(init.body) : undefined,
   });
   const out: any = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = out?.error?.message || res.statusText;
-    if (res.status === 401 || res.status === 403) throw new Error(`Anthropic refused the API key (${res.status}): ${msg}. An admin can update it in Settings.`);
-    if (res.status === 429 || res.status === 529) throw new Error(`Claude is busy right now (${res.status}). Try again in a minute.`);
-    throw new Error(`Claude: ${msg}`);
-  }
+  if (!res.ok) throw new Error(claudeError(res.status, String(out?.error?.message || res.statusText)));
   return out;
+}
+
+async function post(cred: ClaudeCred, payload: Record<string, unknown>): Promise<any> {
+  return claudeFetch(cred, "/v1/messages", { body: payload });
 }

@@ -4,7 +4,7 @@ import type { Config } from "@netlify/functions";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireUser, download } from "./_lib/db";
 import { env } from "./_lib/http";
-import { getKey } from "./_lib/keys";
+import { getClaude, getKey } from "./_lib/keys";
 import { callTool, MODEL, type Block, type Msg } from "./_lib/claude";
 import { GENERATE_SYSTEM, REVIEW_SYSTEM, REVIEW_TOOL, SCRIPT_SYSTEM, SCRIPT_TOOL, UPDATE_TOOL } from "./_lib/prompts";
 import { generateImage, importStock, pexelsSearch, storeAsset, youtubeLinks, youtubeRef, type StoredAsset } from "./_lib/media";
@@ -63,7 +63,7 @@ export default async (req: Request) => {
 
     // ---------------------------------------------------------- Claude jobs
     await update({ status: "running", message: job.kind === "review" ? "Looking at the rendered frames" : job.kind === "script" ? `Writing with ${MODEL()}` : `Designing with ${MODEL()}` });
-    const key = await getKey(db, "anthropic");
+    const cred = await getClaude(db);
     const loadAssets = async () => ((await db!.from("motion_assets").select("*").or(`project_id.eq.${project.id},project_id.is.null`).order("created_at")).data ?? []) as Asset[];
     let assets = await loadAssets();
     const idsFor = (list: Asset[]) => ({
@@ -103,7 +103,7 @@ export default async (req: Request) => {
 
       if (isScript) {
         await update({ message: "Writing the script" });
-        const out = await callTool<{ reply: string; script?: Script }>({ key, system: SCRIPT_SYSTEM, messages, tool: SCRIPT_TOOL as any, maxTokens: 12000 });
+        const out = await callTool<{ reply: string; script?: Script }>({ cred, system: SCRIPT_SYSTEM, messages, tool: SCRIPT_TOOL as any, maxTokens: 12000 });
         let saved = false;
         if (out.input.script) {
           const clean = cleanScript(out.input.script, project.format);
@@ -116,7 +116,7 @@ export default async (req: Request) => {
       }
 
       await update({ message: fromScript ? "Building the video from the script" : "Writing the video" });
-      let out = await callTool<{ reply: string; title?: string; spec?: VideoSpec }>({ key, system: GENERATE_SYSTEM, messages, tool: UPDATE_TOOL as any, maxTokens: 24000 });
+      let out = await callTool<{ reply: string; title?: string; spec?: VideoSpec }>({ cred, system: GENERATE_SYSTEM, messages, tool: UPDATE_TOOL as any, maxTokens: 24000 });
       let usage = out.usage;
       let saved: number | null = null;
       let notes: string[] = [];
@@ -128,7 +128,7 @@ export default async (req: Request) => {
         if (problems.length) {
           await update({ message: "Fixing a few problems in the draft" });
           const retry = await callTool<{ reply: string; title?: string; spec?: VideoSpec }>({
-            key,
+            cred,
             system: GENERATE_SYSTEM,
             messages: [
               ...messages,
@@ -178,7 +178,7 @@ export default async (req: Request) => {
         },
       ];
       const out = await callTool<{ inspected: string[]; issues: any[]; verdict: string; summary: string; spec?: VideoSpec }>({
-        key,
+        cred,
         system: REVIEW_SYSTEM,
         messages: [{ role: "user", content }],
         tool: REVIEW_TOOL as any,
