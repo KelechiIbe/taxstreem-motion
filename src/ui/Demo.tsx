@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Playback } from "../lib/audio";
 import { Renderer, type Loaded } from "../lib/renderer";
+import { LOOKS } from "../runtime/looks";
 import type { Format, VideoSpec } from "../runtime/types";
 import { Player } from "./Player";
 
@@ -11,6 +12,8 @@ export function Demo() {
   const tRef = useRef(0);
   const [spec, setSpec] = useState<VideoSpec | null>(null);
   const [format, setFormat] = useState<Format>("9:16");
+  const [look, setLook] = useState("taxstreem");
+  const [palette, setPalette] = useState<"brand" | "look">("brand");
   const [info, setInfo] = useState<Loaded | null>(null);
   const [exp, setExp] = useState<string>("");
   const [url, setUrl] = useState<string | null>(null);
@@ -24,8 +27,8 @@ export function Demo() {
     return () => renderer.destroy();
   }, [renderer]);
   useEffect(() => {
-    if (spec) renderer.load(spec, format, { t: tRef.current, scale: 0.7 }).then(setInfo, () => {});
-  }, [spec, format, renderer]);
+    if (spec) renderer.load({ ...spec, look, palette }, format, { t: tRef.current, scale: 0.7 }).then(setInfo, () => {});
+  }, [spec, format, look, palette, renderer]);
   const run = async () => {
     setUrl(null);
     const job = renderer.export(format, null, (p) => setExp(`Rendering ${Math.round(p * 100)}%`));
@@ -46,6 +49,15 @@ export function Demo() {
             {(["9:16", "1:1", "16:9"] as Format[]).map((f) => (
               <button key={f} className={format === f ? "on" : ""} onClick={() => setFormat(f)}>{f}</button>
             ))}
+          </div>
+          <select value={look} onChange={(e) => setLook(e.target.value)} aria-label="Style" id="demo-look">
+            {LOOKS.map((l) => (
+              <option key={l.id} value={l.id}>{l.name}</option>
+            ))}
+          </select>
+          <div className="seg-ctl">
+            <button className={palette === "brand" ? "on" : ""} onClick={() => setPalette("brand")}>TaxStreem colours</button>
+            <button className={palette === "look" ? "on" : ""} onClick={() => setPalette("look")}>Style colours</button>
           </div>
           <button className="btn small" onClick={run} id="demo-export">Export MP4</button>
           <span className="small muted" id="demo-status">{exp}</span>

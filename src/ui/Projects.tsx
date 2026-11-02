@@ -88,7 +88,7 @@ function NewProject({ onClose }: { onClose: () => void }) {
   const create = async () => {
     setBusy(true);
     try {
-      const row = check(await sb.from("motion_projects").insert({ title: title.trim() || "Untitled video", format }).select("id").single()) as { id: string };
+      const row = check(await sb.from("motion_projects").insert({ title: title.trim() || "Untitled video", format, stage: "script" }).select("id").single()) as { id: string };
       go(`p/${row.id}`);
     } catch (e) {
       setErr((e as Error).message);

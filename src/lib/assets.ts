@@ -5,7 +5,7 @@ import { api, check, fileUrl, sb, upload } from "./supabase";
 export interface AssetRow {
   id: string;
   project_id: string | null;
-  kind: "image" | "audio" | "voice";
+  kind: "image" | "audio" | "voice" | "video" | "reference";
   name: string;
   path: string;
   mime: string;
@@ -75,6 +75,6 @@ export async function bitmapFor(a: AssetRow): Promise<ImageBitmap> {
 
 export async function removeAsset(a: AssetRow) {
   check(await sb.from("motion_assets").delete().eq("id", a.id));
-  const paths = [a.path, a.meta?.preview].filter(Boolean) as string[];
+  const paths = [...new Set([a.path, a.meta?.preview, a.meta?.poster, a.meta?.sheet].filter(Boolean))] as string[];
   await sb.storage.from("media").remove(paths);
 }

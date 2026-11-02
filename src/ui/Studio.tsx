@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { bitmapFor, removeAsset, uploadAudio, uploadImage, type AssetRow } from "../lib/assets";
 import { decodeUrl, mix, Playback } from "../lib/audio";
+import { assetBlob, ensurePreview, uploadSample, uploadVideo } from "../lib/media";
 import { Renderer, type Loaded } from "../lib/renderer";
 import { api, check, fileUrl, sb, upload } from "../lib/supabase";
-import type { Format, VideoSpec } from "../runtime/types";
+import { clipSounds, mediaIds } from "../runtime/audioplan";
+import { getLook } from "../runtime/looks";
+import type { Format, PaletteSpec, Script, VideoSpec } from "../runtime/types";
 import { checkSpec } from "../runtime/validate";
 import { TopBar, type Me } from "./App";
 import { Chat, type MessageRow } from "./Chat";
+import { ImageModal, StockModal, StyleModal, type StockItem } from "./MediaModals";
 import { ExportModal, JsonModal, VoiceModal } from "./Modals";
 import { Player } from "./Player";
+import { ScriptEditor } from "./ScriptEditor";
 
 export interface ProjectRow {
   id: string;
@@ -17,6 +22,8 @@ export interface ProjectRow {
   spec: VideoSpec | null;
   version: number;
   thumb_path: string | null;
+  script: Script | null;
+  stage: "script" | "video";
 }
 interface VersionRow {
   id: number;
@@ -28,7 +35,7 @@ interface VersionRow {
 }
 interface JobRow {
   id: string;
-  kind: "generate" | "review";
+  kind: "generate" | "review" | "script" | "import" | "imagegen";
   status: "queued" | "running" | "done" | "error";
   message: string;
   result: any;
@@ -44,6 +51,20 @@ export interface RenderRow {
 }
 
 const FORMATS: Format[] = ["9:16", "1:1", "16:9"];
+const VIDEO_FILE = /\.(mp4|mov|m4v|webm|mkv)$/i;
+const AUDIO_FILE = /\.(mp3|wav|m4a|aac|ogg|flac)$/i;
+
+/** Polls a background job until it finishes. */
+async function waitJob(id: string, onMessage?: (m: string) => void): Promise<JobRow> {
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 1500));
+    const { data } = await sb.from("motion_jobs").select("*").eq("id", id).single();
+    if (!data) continue;
+    onMessage?.(data.message);
+    if (data.status === "done") return data as JobRow;
+    if (data.status === "error") throw new Error(data.message || "The task failed");
+  }
+}
 
 export function Studio({ projectId, me }: { projectId: string; me: Me }) {
   const renderer = useMemo(() => new Renderer(), []);
@@ -52,6 +73,7 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
   const tRef = useRef(0);
 
   const [project, setProject] = useState<ProjectRow | null>(null);
+  const [mode, setMode] = useState<"script" | "video">("video");
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [assets, setAssets] = useState<AssetRow[]>([]);
   const [versions, setVersions] = useState<VersionRow[]>([]);
@@ -64,40 +86,61 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [mixed, setMixed] = useState<AudioBuffer | null>(null);
   const [tab, setTab] = useState<"assets" | "versions" | "renders">("assets");
-  const [modal, setModal] = useState<null | "voice" | "export" | "json">(null);
+  const [modal, setModal] = useState<null | "voice" | "export" | "json" | "style" | "stock" | "image">(null);
+  const [voiceText, setVoiceText] = useState<{ text: string; direction?: string } | null>(null);
   const [autoReview, setAutoReview] = useState(() => localStorage.getItem("motion.autoReview") !== "off");
   const [pendingAttach, setPendingAttach] = useState<string[]>([]);
   const [stage, setStage] = useState<string | null>(null);
   const reviewFor = useRef<number | null>(null);
   const thumbedVersion = useRef<number>(-1);
+  const modeSet = useRef(false);
 
   renderer.onWarnings = setWarnings;
 
   // ------------------------------------------------------------ data
   const loadProject = useCallback(async () => {
-    const p = check(await sb.from("motion_projects").select("id, title, format, spec, version, thumb_path").eq("id", projectId).single()) as ProjectRow;
+    const p = check(await sb.from("motion_projects").select("id, title, format, spec, version, thumb_path, script, stage").eq("id", projectId).single()) as ProjectRow;
     setProject(p);
+    if (!modeSet.current) {
+      modeSet.current = true;
+      setMode(p.stage === "script" || (!p.spec?.scenes?.length && p.script) ? "script" : "video");
+    }
     return p;
   }, [projectId]);
   const loadMessages = useCallback(async () => setMessages(check(await sb.from("motion_messages").select("*").eq("project_id", projectId).order("id")) as MessageRow[]), [projectId]);
-  const loadAssets = useCallback(async () => setAssets(check(await sb.from("motion_assets").select("*").or(`project_id.eq.${projectId},project_id.is.null`).order("created_at")) as AssetRow[]), [projectId]);
+  const loadAssets = useCallback(async () => {
+    const rows = check(await sb.from("motion_assets").select("*").or(`project_id.eq.${projectId},project_id.is.null`).order("created_at")) as AssetRow[];
+    setAssets(rows);
+    return rows;
+  }, [projectId]);
   const loadVersions = useCallback(async () => setVersions(check(await sb.from("motion_versions").select("id, n, note, source, created_at").eq("project_id", projectId).order("n", { ascending: false }).limit(60)) as VersionRow[]), [projectId]);
   const loadRenders = useCallback(async () => setRenders(check(await sb.from("motion_renders").select("*").eq("project_id", projectId).order("created_at", { ascending: false }).limit(40)) as RenderRow[]), [projectId]);
 
   useEffect(() => {
     Promise.all([loadProject(), loadMessages(), loadAssets(), loadVersions(), loadRenders()]).catch((e) => setErr(e.message));
-    // pick up a job that was running when the page was closed
+    // pick up a Claude job that was running when the page was closed
     sb.from("motion_jobs")
       .select("*")
       .eq("project_id", projectId)
       .in("status", ["queued", "running"])
+      .in("kind", ["generate", "review", "script"])
       .gte("created_at", new Date(Date.now() - 16 * 60_000).toISOString())
       .order("created_at", { ascending: false })
       .limit(1)
       .then((r) => r.data?.[0] && setJob(r.data[0] as JobRow));
   }, [projectId, loadProject, loadMessages, loadAssets, loadVersions, loadRenders]);
 
-  // poll the active job
+  // server-made images (AI images) get the small preview Claude looks at
+  useEffect(() => {
+    const todo = assets.filter((a) => a.kind === "image" && a.project_id === projectId && !a.meta?.preview);
+    if (!todo.length) return;
+    Promise.all(todo.map((a) => ensurePreview(a).catch(() => null))).then((rows) => {
+      const done = rows.filter(Boolean) as AssetRow[];
+      if (done.length) setAssets((x) => x.map((a) => done.find((d) => d.id === a.id) ?? a));
+    });
+  }, [assets.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // poll the active Claude job
   useEffect(() => {
     if (!job || job.status === "done" || job.status === "error") return;
     const timer = setInterval(async () => {
@@ -107,8 +150,9 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
       if (data.status === "done" || data.status === "error") {
         clearInterval(timer);
         const p = await loadProject();
-        await Promise.all([loadMessages(), loadVersions()]);
+        await Promise.all([loadMessages(), loadVersions(), loadAssets()]);
         if (data.status === "done" && data.kind === "generate" && data.result?.version && autoReview) reviewFor.current = data.result.version;
+        if (data.status === "done" && data.kind === "generate" && data.result?.version) setMode("video");
         if (data.status === "done" && p) setViewing(null);
       }
     }, 1500);
@@ -130,19 +174,21 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
     }
     let live = true;
     (async () => {
-      // send the screenshots this spec uses to the renderer
-      const wanted = new Set<string>();
-      for (const s of spec.scenes) {
-        if (s.type === "screenshot" && s.props?.image) wanted.add(String(s.props.image));
-        if (s.type === "custom" && typeof s.props?.code === "string") for (const a of assets) if (a.kind === "image" && s.props.code.includes(a.id)) wanted.add(a.id);
+      // hand the renderer every image and clip this spec uses
+      const wanted = mediaIds(spec);
+      for (const s of spec.scenes) if (s.type === "custom" && typeof s.props?.code === "string") for (const a of assets) if ((a.kind === "image" || a.kind === "video") && s.props.code.includes(a.id)) wanted.add(a.id);
+      const imgs = [...wanted].filter((id) => byId.get(id)?.kind === "image" && !renderer.hasImage(id));
+      const clips = [...wanted].filter((id) => byId.get(id)?.kind === "video" && !renderer.hasVideo(id));
+      if (imgs.length || clips.length) setStage(clips.length ? "Loading clips" : "Loading images");
+      if (imgs.length) {
+        const out: Record<string, ImageBitmap> = {};
+        await Promise.all(imgs.map(async (id) => (out[id] = await bitmapFor(byId.get(id)!).catch(() => null as any))));
+        Object.keys(out).forEach((k) => !out[k] && delete out[k]);
+        renderer.sendImages(out, tRef.current);
       }
-      const need = [...wanted].filter((id) => !renderer.hasImage(id) && byId.get(id)?.kind === "image");
-      if (need.length) {
-        setStage("Loading screenshots");
-        const imgs: Record<string, ImageBitmap> = {};
-        await Promise.all(need.map(async (id) => (imgs[id] = await bitmapFor(byId.get(id)!).catch(() => null as any))));
-        Object.keys(imgs).forEach((k) => !imgs[k] && delete imgs[k]);
-        renderer.sendImages(imgs, tRef.current);
+      for (const id of clips) {
+        const r = await renderer.sendVideo(id, await assetBlob(byId.get(id)!), tRef.current);
+        if (!r.ok && live) setErr(`${byId.get(id)?.name}: ${r.message}`);
       }
       setStage(null);
       const info = await renderer.load(spec, format, { words: voice?.meta?.words, beats: music?.meta?.beats, t: tRef.current, scale: 0.7 });
@@ -151,24 +197,33 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
       setWarnings(info.warnings);
     })().catch((e) => {
       if (e.message !== "superseded") setErr(e.message);
+      setStage(null);
     });
     return () => {
       live = false;
     };
   }, [spec, format, assets]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // audio mix for preview and export
+  // audio mix for preview and export: voice, music and any clip sound
+  const sounds = useMemo(() => (spec && loaded ? clipSounds(spec, loaded.timings, (id) => byId.get(id)?.kind === "video") : []), [spec, loaded?.timings, byId]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     let live = true;
     const dur = loaded?.duration ?? 0;
-    if (!spec || dur <= 0 || (!voice && !music)) {
+    if (!spec || dur <= 0 || (!voice && !music && !sounds.length)) {
       setMixed(null);
       playback.buffer = null;
       return;
     }
     (async () => {
       const [v, m] = await Promise.all([voice ? decodeUrl(voice.id, await fileUrl(voice.path)) : null, music ? decodeUrl(music.id, await fileUrl(music.path)) : null]);
-      const buf = await mix({ duration: dur, voice: v, music: m, voiceVolume: spec.audio?.voiceVolume, voiceDelay: spec.audio?.voiceDelay, musicVolume: spec.audio?.musicVolume, musicStart: spec.audio?.musicStart, duck: spec.audio?.duck });
+      const clips = await Promise.all(
+        sounds.map(async (c) => {
+          const a = byId.get(c.asset);
+          const buffer = a ? await decodeUrl(`clip:${a.id}`, await fileUrl(a.path)).catch(() => null) : null;
+          return { ...c, buffer };
+        }),
+      );
+      const buf = await mix({ duration: dur, voice: v, music: m, voiceVolume: spec.audio?.voiceVolume, voiceDelay: spec.audio?.voiceDelay, musicVolume: spec.audio?.musicVolume, musicStart: spec.audio?.musicStart, duck: spec.audio?.duck, clips });
       if (!live) return;
       setMixed(buf);
       playback.buffer = buf;
@@ -176,7 +231,7 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
     return () => {
       live = false;
     };
-  }, [loaded?.duration, JSON.stringify(spec?.audio ?? null), voice?.id, music?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loaded?.duration, JSON.stringify(spec?.audio ?? null), voice?.id, music?.id, JSON.stringify(sounds)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // after each new current version: poster thumbnail, then (once per AI version) the frame review
   useEffect(() => {
@@ -206,11 +261,25 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
     await loadMessages();
   };
 
+  /** Stock imports and AI images run in the background without blocking the chat. */
+  const mediaJob = async (payload: Record<string, unknown>, label: string) => {
+    const r = await api<{ jobId: string }>("motion-start", { projectId, ...payload });
+    setStage(label);
+    try {
+      const done = await waitJob(r.jobId, (m) => setStage(`${label}: ${m}`));
+      await loadAssets();
+      const id = done.result?.assetId;
+      if (id) setPendingAttach((p) => (p.includes(id) ? p : [...p, id]));
+    } finally {
+      setStage(null);
+    }
+  };
+
   const send = async (text: string) => {
     try {
       const attachments = pendingAttach;
       setPendingAttach([]);
-      await startJob({ kind: "generate", text, attachments });
+      await startJob({ kind: mode === "script" ? "script" : "generate", text, attachments });
     } catch (e) {
       setErr((e as Error).message);
     }
@@ -230,16 +299,21 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
     }
   };
 
-  const onFiles = async (files: File[], kind?: "audio" | "voice") => {
+  const onFiles = async (files: File[], kind?: "audio" | "voice" | "sample") => {
     setErr(null);
     for (const f of files) {
       try {
         setStage(`Uploading ${f.name}`);
         let row: AssetRow;
-        if (f.type.startsWith("image/")) row = await uploadImage(projectId, f);
-        else if (f.type.startsWith("audio/") || /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(f.name)) row = await uploadAudio(projectId, f, kind ?? (/voice|vo\b|narration/i.test(f.name) ? "voice" : "audio"));
+        const isVideo = f.type.startsWith("video/") || VIDEO_FILE.test(f.name);
+        if (kind === "sample") {
+          if (!isVideo) throw new Error("A sample should be a video file (MP4, MOV or WebM).");
+          row = await uploadSample(projectId, f, setStage);
+        } else if (isVideo) row = await uploadVideo(projectId, f, setStage);
+        else if (f.type.startsWith("image/")) row = await uploadImage(projectId, f);
+        else if (f.type.startsWith("audio/") || AUDIO_FILE.test(f.name)) row = await uploadAudio(projectId, f, kind === "voice" || kind === "audio" ? kind : /voice|vo\b|narration/i.test(f.name) ? "voice" : "audio");
         else {
-          setErr(`${f.name}: only images and audio files are supported.`);
+          setErr(`${f.name}: use images, video clips or audio files.`);
           continue;
         }
         setAssets((a) => [...a, row]);
@@ -251,10 +325,16 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
     setStage(null);
   };
 
+  const idsFor = () => ({
+    imageIds: new Set(assets.filter((a) => a.kind === "image").map((a) => a.id)),
+    videoIds: new Set(assets.filter((a) => a.kind === "video").map((a) => a.id)),
+    audioIds: new Set(assets.filter((a) => a.kind === "audio" || a.kind === "voice").map((a) => a.id)),
+    format: project!.format,
+  });
+
   const saveManual = async (next: VideoSpec, note: string, source: "manual" | "restore") => {
     if (!project) return;
-    const ids = { imageIds: new Set(assets.filter((a) => a.kind === "image").map((a) => a.id)), audioIds: new Set(assets.filter((a) => a.kind !== "image").map((a) => a.id)), format: project.format };
-    const c = checkSpec(next, ids);
+    const c = checkSpec(next, idsFor());
     if (c.errors.length) throw new Error(c.errors.join(" "));
     const n = project.version + 1;
     check(await sb.from("motion_versions").insert({ project_id: project.id, n, spec: c.spec, note, source }));
@@ -264,7 +344,33 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
     await Promise.all([loadProject(), loadVersions(), loadMessages()]);
   };
 
+  const saveScript = async (s: Script) => {
+    if (!project) return;
+    check(await sb.from("motion_projects").update({ script: s }).eq("id", project.id));
+    setProject((p) => (p ? { ...p, script: s } : p));
+  };
+
+  const approve = async (s: Script) => {
+    if (!project) return;
+    try {
+      const approved = { ...s, approvedAt: new Date().toISOString() };
+      check(await sb.from("motion_projects").update({ script: approved, format: s.format, title: s.title || project.title }).eq("id", project.id));
+      setProject({ ...project, script: approved, format: s.format });
+      await startJob({ kind: "generate", fromScript: true, text: "Build the video from the approved script." });
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+
+  const applyStyle = async (look: string, palette: PaletteSpec) => {
+    if (!spec) return;
+    const name = getLook(look).name;
+    await saveManual({ ...spec, look, palette }, `Style: ${name}${palette === "look" ? " in its own colours" : typeof palette === "object" ? " in custom colours" : ""}`, "manual");
+    setModal(null);
+  };
+
   const viewVersion = async (n: number) => {
+    setMode("video");
     if (project && n === project.version) return setViewing(null);
     const row = check(await sb.from("motion_versions").select("*").eq("project_id", projectId).eq("n", n).single()) as VersionRow;
     setViewing(row);
@@ -276,8 +382,17 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
     setProject({ ...project, title: title.trim() });
   };
 
+  const switchMode = async (m: "script" | "video") => {
+    setMode(m);
+    if (project && project.stage !== m && (m === "script" || project.spec?.scenes?.length)) {
+      await sb.from("motion_projects").update({ stage: m }).eq("id", project.id);
+      setProject({ ...project, stage: m });
+    }
+  };
+
   const busyJob = job && (job.status === "queued" || job.status === "running") ? job : null;
   const canDelete = me.role === "admin" || me.role === "producer";
+  const hasVideo = !!project?.spec?.scenes?.length;
 
   if (!project) return <div className="center muted">{err ?? "Loading…"}</div>;
   return (
@@ -285,53 +400,92 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
       <TopBar me={me}>
         <a href="#/" className="btn ghost small">← Videos</a>
         <input className="title-input" defaultValue={project.title} onBlur={(e) => renameProject(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
-        <div className="seg-ctl" role="tablist" aria-label="Preview format">
-          {FORMATS.map((f) => (
-            <button key={f} className={format === f ? "on" : ""} onClick={() => setViewFormat(f)}>{f}</button>
-          ))}
+        <div className="seg-ctl" role="tablist" aria-label="Script or video">
+          <button className={mode === "script" ? "on" : ""} onClick={() => switchMode("script")}>Script</button>
+          <button className={mode === "video" ? "on" : ""} onClick={() => switchMode("video")}>Video</button>
         </div>
-        <button className="btn primary small" disabled={!loaded} onClick={() => setModal("export")}>Export</button>
+        {mode === "video" && (
+          <>
+            <div className="seg-ctl" role="tablist" aria-label="Preview format">
+              {FORMATS.map((f) => (
+                <button key={f} className={format === f ? "on" : ""} onClick={() => setViewFormat(f)}>{f}</button>
+              ))}
+            </div>
+            <button className="btn small" disabled={!spec || !!viewing} onClick={() => setModal("style")} title="Style and colours">
+              Style: {getLook(spec?.look).name}
+            </button>
+            <button className="btn primary small" disabled={!loaded} onClick={() => setModal("export")}>Export</button>
+          </>
+        )}
       </TopBar>
       <div className="studio-body">
         <Chat
+          mode={mode}
           messages={messages}
           job={busyJob}
           lastError={job?.status === "error" ? job.message : null}
           assets={byId}
           pending={pendingAttach}
           setPending={setPendingAttach}
-          empty={!project.spec?.scenes?.length}
+          empty={mode === "script" ? !project.script : !hasVideo}
           onSend={send}
           onFiles={onFiles}
-          onVoice={() => setModal("voice")}
+          onVoice={() => {
+            setVoiceText(null);
+            setModal("voice");
+          }}
           onViewVersion={viewVersion}
           currentVersion={project.version}
           disabled={!!busyJob}
         />
         <section className="stage">
-          {viewing && (
-            <div className="banner">
-              Viewing version {viewing.n}{viewing.note ? ` · ${viewing.note}` : ""}
-              <span className="row">
-                <button className="btn small" onClick={() => saveManual(viewing.spec!, `Restored version ${viewing.n}`, "restore").catch((e) => setErr(e.message))}>Restore this version</button>
-                <button className="btn ghost small" onClick={() => setViewing(null)}>Back to latest</button>
-              </span>
-            </div>
-          )}
           {err && (
             <div className="banner error-banner">
               {err}
               <button className="btn ghost small" onClick={() => setErr(null)}>Dismiss</button>
             </div>
           )}
-          <Player renderer={renderer} duration={loaded?.duration ?? 0} timings={loaded?.timings ?? []} format={format} playback={playback} busy={stage} tRef={tRef} />
-          {warnings.length > 0 && (
-            <ul className="warnings">
-              {warnings.slice(0, 6).map((w) => (
-                <li key={w}>{w}</li>
-              ))}
-            </ul>
+          {mode === "script" ? (
+            <ScriptEditor
+              script={project.script}
+              assets={assets}
+              busy={!!busyJob}
+              hasVideo={hasVideo}
+              onSave={saveScript}
+              onApprove={approve}
+              onVoiceover={(text, direction) => {
+                setVoiceText({ text, direction });
+                setModal("voice");
+              }}
+            />
+          ) : (
+            <>
+              {viewing && (
+                <div className="banner">
+                  Viewing version {viewing.n}{viewing.note ? ` · ${viewing.note}` : ""}
+                  <span className="row">
+                    <button className="btn small" onClick={() => saveManual(viewing.spec!, `Restored version ${viewing.n}`, "restore").catch((e) => setErr(e.message))}>Restore this version</button>
+                    <button className="btn ghost small" onClick={() => setViewing(null)}>Back to latest</button>
+                  </span>
+                </div>
+              )}
+              {!hasVideo && project.script && (
+                <div className="banner">
+                  The script is ready for review.
+                  <button className="btn small" onClick={() => switchMode("script")}>Open the script</button>
+                </div>
+              )}
+              <Player renderer={renderer} duration={loaded?.duration ?? 0} timings={loaded?.timings ?? []} format={format} playback={playback} busy={stage} tRef={tRef} />
+              {warnings.length > 0 && (
+                <ul className="warnings">
+                  {warnings.slice(0, 6).map((w) => (
+                    <li key={w}>{w}</li>
+                  ))}
+                </ul>
+              )}
+            </>
           )}
+          {mode === "script" && stage && <div className="banner"><span><span className="spinner" /> {stage}</span></div>}
         </section>
         <aside className="side">
           <div className="tabs">
@@ -341,13 +495,32 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
               </button>
             ))}
           </div>
-          {tab === "assets" && <AssetsPanel assets={assets.filter((a) => a.project_id === projectId)} spec={spec} canDelete={canDelete} onUse={(id) => setPendingAttach((p) => (p.includes(id) ? p : [...p, id]))} onDelete={async (a) => { await removeAsset(a).catch((e) => setErr(e.message)); await loadAssets(); }} onVoice={() => setModal("voice")} onFiles={onFiles} />}
+          {tab === "assets" && (
+            <AssetsPanel
+              assets={assets.filter((a) => a.project_id === projectId)}
+              spec={spec}
+              script={project.script}
+              canDelete={canDelete}
+              onUse={(id) => setPendingAttach((p) => (p.includes(id) ? p : [...p, id]))}
+              onDelete={async (a) => {
+                await removeAsset(a).catch((e) => setErr(e.message));
+                await loadAssets();
+              }}
+              onVoice={() => {
+                setVoiceText(null);
+                setModal("voice");
+              }}
+              onStock={() => setModal("stock")}
+              onImage={() => setModal("image")}
+              onFiles={onFiles}
+            />
+          )}
           {tab === "versions" && (
             <div className="list">
               {versions.length === 0 && <p className="muted small pad">No versions yet.</p>}
               {versions.map((v) => (
-                <button key={v.id} className={`item ${shownVersion === v.n ? "on" : ""}`} onClick={() => viewVersion(v.n)}>
-                  <strong>v{v.n}</strong> <span className={`tag ${v.source}`}>{v.source === "ai" ? "Claude" : v.source === "review" ? "Review fix" : v.source}</span>
+                <button key={v.id} className={`item ${mode === "video" && shownVersion === v.n ? "on" : ""}`} onClick={() => viewVersion(v.n)}>
+                  <strong>v{v.n}</strong> <span className={`tag ${v.source}`}>{v.source === "ai" ? "Claude" : v.source === "review" ? "Review fix" : v.source === "script" ? "From script" : v.source}</span>
                   <div className="small muted">{v.note || "—"}</div>
                   <div className="small muted">{new Date(v.created_at).toLocaleString()}</div>
                 </button>
@@ -355,21 +528,25 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
             </div>
           )}
           {tab === "renders" && <RendersPanel renders={renders} />}
-          <div className="side-foot stack">
-            <label className="row small">
-              <input type="checkbox" checked={autoReview} onChange={(e) => { setAutoReview(e.target.checked); localStorage.setItem("motion.autoReview", e.target.checked ? "on" : "off"); }} />
-              Claude reviews rendered frames after each version
-            </label>
-            <div className="row wrap">
-              <button className="btn small" disabled={!loaded || !!busyJob || !!viewing} onClick={() => runReview(project.version)}>Review frames now</button>
-              <button className="btn small" disabled={!spec} onClick={() => setModal("json")}>Edit spec</button>
+          {mode === "video" && (
+            <div className="side-foot stack">
+              <label className="row small">
+                <input type="checkbox" checked={autoReview} onChange={(e) => { setAutoReview(e.target.checked); localStorage.setItem("motion.autoReview", e.target.checked ? "on" : "off"); }} />
+                Claude reviews rendered frames after each version
+              </label>
+              <div className="row wrap">
+                <button className="btn small" disabled={!loaded || !!busyJob || !!viewing} onClick={() => runReview(project.version)}>Review frames now</button>
+                <button className="btn small" disabled={!spec} onClick={() => setModal("json")}>Edit spec</button>
+              </div>
             </div>
-          </div>
+          )}
         </aside>
       </div>
       {modal === "voice" && (
         <VoiceModal
           projectId={projectId}
+          initialText={voiceText?.text}
+          direction={voiceText?.direction}
           onClose={() => setModal(null)}
           onCreated={(a) => {
             setAssets((x) => [...x, a]);
@@ -384,50 +561,94 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
       )}
       {modal === "export" && spec && <ExportModal renderer={renderer} spec={spec} project={project} version={shownVersion} mixed={mixed} defaultFormat={format} onClose={() => setModal(null)} onSaved={loadRenders} />}
       {modal === "json" && spec && <JsonModal spec={spec} onClose={() => setModal(null)} onSave={async (s, note) => { await saveManual(s, note, "manual"); setModal(null); }} />}
+      {modal === "style" && spec && <StyleModal look={spec.look ?? "taxstreem"} palette={spec.palette} onClose={() => setModal(null)} onApply={(l, p) => applyStyle(l, p).catch((e) => setErr(e.message))} />}
+      {modal === "stock" && <StockModal format={project.format} onClose={() => setModal(null)} onImport={(item: StockItem) => mediaJob({ kind: "import", item }, "Importing stock")} />}
+      {modal === "image" && (
+        <ImageModal
+          format={project.format}
+          onClose={() => setModal(null)}
+          onGenerate={async (prompt, aspect, model) => {
+            setModal(null);
+            await mediaJob({ kind: "imagegen", prompt, aspect, model }, "Making the image").catch((e) => setErr(e.message));
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function AssetsPanel({ assets, spec, canDelete, onUse, onDelete, onVoice, onFiles }: { assets: AssetRow[]; spec: VideoSpec | null; canDelete: boolean; onUse: (id: string) => void; onDelete: (a: AssetRow) => void; onVoice: () => void; onFiles: (f: File[], kind?: "audio" | "voice") => void }) {
+function AssetsPanel(p: {
+  assets: AssetRow[];
+  spec: VideoSpec | null;
+  script: Script | null;
+  canDelete: boolean;
+  onUse: (id: string) => void;
+  onDelete: (a: AssetRow) => void;
+  onVoice: () => void;
+  onStock: () => void;
+  onImage: () => void;
+  onFiles: (f: File[], kind?: "audio" | "voice" | "sample") => void;
+}) {
   const [urls, setUrls] = useState<Record<string, string>>({});
   useEffect(() => {
-    assets.forEach((a) => {
+    p.assets.forEach((a) => {
       if (urls[a.id]) return;
-      fileUrl(a.kind === "image" ? a.meta?.preview || a.path : a.path).then((u) => setUrls((x) => ({ ...x, [a.id]: u })), () => {});
+      const path = a.kind === "image" ? a.meta?.preview || a.path : a.kind === "video" ? a.meta?.poster : a.kind === "reference" ? a.meta?.sheet : a.path;
+      if (path) fileUrl(path).then((u) => setUrls((x) => ({ ...x, [a.id]: u })), () => {});
     });
-  }, [assets]); // eslint-disable-line react-hooks/exhaustive-deps
-  const used = new Set<string>([spec?.audio?.voice, spec?.audio?.music, ...(spec?.scenes ?? []).map((s) => s.props?.image)].filter(Boolean) as string[]);
-  const pick = (accept: string, kind?: "audio" | "voice") => {
+  }, [p.assets]); // eslint-disable-line react-hooks/exhaustive-deps
+  const used = new Set<string>([p.spec?.audio?.voice, p.spec?.audio?.music, ...(p.spec ? mediaIds(p.spec) : []), ...(p.script?.scenes ?? []).flatMap((s) => s.media ?? [])].filter(Boolean) as string[]);
+  const pick = (accept: string, kind?: "audio" | "voice" | "sample") => {
     const i = document.createElement("input");
     i.type = "file";
     i.accept = accept;
-    i.multiple = true;
-    i.onchange = () => onFiles([...(i.files ?? [])], kind);
+    i.multiple = kind !== "sample";
+    i.onchange = () => p.onFiles([...(i.files ?? [])], kind);
     i.click();
+  };
+  const label = (a: AssetRow) => {
+    const m = a.meta ?? {};
+    if (a.kind === "image") return `${m.width ?? "?"}×${m.height ?? "?"}${m.source === "pexels" ? " · Pexels" : m.source === "elevenlabs" ? " · AI image" : ""}`;
+    if (a.kind === "video") return `Clip · ${Number(m.duration ?? 0).toFixed(1)}s${m.hasAudio ? " · sound" : ""}${m.source === "pexels" ? " · Pexels" : ""}`;
+    if (a.kind === "reference") return `Sample · ${Number(m.duration ?? 0).toFixed(1)}s · ${(m.shots ?? []).length} shots${m.bpm ? ` · ${Math.round(m.bpm)} BPM` : ""}`;
+    return `${Number(m.duration ?? 0).toFixed(1)}s${m.bpm ? ` · ${Math.round(m.bpm)} BPM` : ""}${a.kind === "voice" ? (m.words?.length ? " · timed" : " · no timings") : ""}`;
   };
   return (
     <div className="list">
       <div className="row wrap pad">
-        <button className="btn small" onClick={() => pick("image/*")}>+ Screenshot</button>
+        <button className="btn small" onClick={() => pick("image/*")}>+ Image</button>
+        <button className="btn small" onClick={() => pick("video/*,.mov,.mp4,.webm,.m4v")}>+ Clip</button>
         <button className="btn small" onClick={() => pick("audio/*", "audio")}>+ Music</button>
-        <button className="btn small" onClick={onVoice}>+ Voiceover</button>
+        <button className="btn small" onClick={p.onVoice}>Voiceover</button>
+        <button className="btn small" onClick={p.onStock}>Stock</button>
+        <button className="btn small" onClick={p.onImage}>AI image</button>
+        <button className="btn small" onClick={() => pick("video/*,.mov,.mp4,.webm,.m4v", "sample")} title="A motion design for Claude to replicate or learn from">+ Sample</button>
       </div>
-      {assets.length === 0 && <p className="muted small pad">Upload product screenshots (PNG), music from Envato, or make a voiceover. Claude sees screenshots and times scenes to your audio.</p>}
-      {assets.map((a) => (
+      {p.assets.length === 0 && <p className="muted small pad">Upload product screenshots, footage or screen recordings, music from Envato, or make a voiceover. Search stock or generate an image. Add a sample video and ask Claude to replicate or tweak it; for a YouTube example, paste the link in the chat.</p>}
+      {p.assets.map((a) => (
         <div key={a.id} className="asset">
-          {a.kind === "image" ? <img src={urls[a.id]} alt="" /> : <div className="audio-ico">{a.kind === "voice" ? "VO" : "♪"}</div>}
+          {a.kind === "image" || a.kind === "video" || a.kind === "reference" ? (
+            <div className="thumb-wrap">
+              {urls[a.id] ? <img src={urls[a.id]} alt="" /> : <div className="audio-ico">…</div>}
+              {a.kind === "video" && <span className="badge">▶</span>}
+              {a.kind === "reference" && <span className="badge">Sample</span>}
+            </div>
+          ) : (
+            <div className="audio-ico">{a.kind === "voice" ? "VO" : "♪"}</div>
+          )}
           <div className="asset-meta">
             <div className="small ellipsis" title={a.name}>{a.name}</div>
             <div className="small muted">
-              {a.kind === "image" ? `${a.meta.width}×${a.meta.height}` : `${Number(a.meta.duration ?? 0).toFixed(1)}s`}
-              {a.meta.bpm ? ` · ${Math.round(a.meta.bpm)} BPM` : ""}
-              {a.kind === "voice" ? (a.meta.words?.length ? " · timed" : " · no timings") : ""}
-              {used.has(a.id) ? " · in video" : ""}
+              {label(a)}
+              {used.has(a.id) ? " · in use" : ""}
             </div>
-            {a.kind !== "image" && urls[a.id] && <audio controls preload="none" src={urls[a.id]} />}
+            {(a.kind === "audio" || a.kind === "voice") && urls[a.id] && <audio controls preload="none" src={urls[a.id]} />}
+            {a.meta?.credit && a.meta?.source === "pexels" && (
+              <a className="small muted" href={a.meta.pageUrl} target="_blank" rel="noreferrer">Pexels · {a.meta.credit}</a>
+            )}
             <div className="row">
-              <button className="link small" onClick={() => onUse(a.id)}>Mention in chat</button>
-              {canDelete && <button className="link small danger" onClick={() => confirm(`Delete ${a.name}?`) && onDelete(a)}>Delete</button>}
+              <button className="link small" onClick={() => p.onUse(a.id)}>Mention in chat</button>
+              {p.canDelete && <button className="link small danger" onClick={() => confirm(`Delete ${a.name}?`) && p.onDelete(a)}>Delete</button>}
             </div>
           </div>
         </div>
