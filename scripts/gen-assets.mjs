@@ -15,6 +15,14 @@ const ICONS = [
   "percent", "banknote", "credit-card", "smartphone", "globe", "mail", "file-check", "files", "scan-line", "bot",
   "link", "store", "package", "truck", "hand-coins", "piggy-bank", "scale", "gavel", "badge-check", "timer",
   "layout-dashboard", "list-checks", "message-circle", "send", "star", "heart", "rocket", "target", "eye", "settings",
+  "play", "circle-play", "image", "film", "video", "camera", "mic", "music", "headphones", "arrow-up",
+  "arrow-down", "arrow-up-right", "chevron-down", "minus", "plus", "ellipsis", "paperclip", "languages", "moon", "sun",
+  "cloud", "wifi", "user", "user-check", "house", "map-pin", "phone", "chart-pie", "chart-line", "coins",
+  "circle-dollar-sign", "badge-percent", "receipt-text", "file-spreadsheet", "fingerprint", "scan-face", "key-round", "shield", "qr-code", "shopping-cart",
+  "gift", "award", "trophy", "flag", "book-open", "graduation-cap", "lightbulb", "megaphone", "hourglass", "inbox",
+  "folder", "folder-open", "pen-line", "stamp", "factory", "handshake", "circle-alert", "info", "circle-help", "thumbs-up",
+  "smile", "message-square", "layers", "layout-grid", "sliders-horizontal", "toggle-right", "repeat", "external-link", "share-2", "cpu",
+  "database", "code", "terminal", "webhook", "mouse-pointer-click", "wand-sparkles", "brain-circuit",
 ];
 
 function num(s) {
@@ -22,7 +30,7 @@ function num(s) {
 }
 function attrs(tag) {
   const out = {};
-  for (const m of tag.matchAll(/([a-zA-Z-:]+)="([^"]*)"/g)) out[m[1]] = m[2];
+  for (const m of tag.matchAll(/([a-zA-Z0-9-:]+)="([^"]*)"/g)) out[m[1]] = m[2];
   return out;
 }
 function elementToPath(name, a) {

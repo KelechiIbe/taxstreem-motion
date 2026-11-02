@@ -27,8 +27,8 @@ export interface SceneCtx {
   image(id: string | undefined): (ImageBitmap & { width: number; height: number }) | null;
   /** A still or a video frame: images by id, videos at media time `at` (seconds into the clip). */
   media(id: string | undefined, at?: number): MediaFrame | null;
-  /** Duration of a video asset in seconds (0 for images or unknown). */
-  mediaDuration(id: string | undefined): number;
+  /** Size and length of a media asset (duration 0 for stills), or null when it isn't loaded. */
+  mediaInfo(id: string | undefined): { width: number; height: number; duration: number; video: boolean } | null;
   warn(msg: string): void;
 }
 
@@ -417,14 +417,93 @@ const stat: Template = (c) => {
   }
 };
 
+/** Seconds into a clip for this moment of the scene: start, speed, end and loop props. */
+function mediaTime(c: SceneCtx, id: string | undefined, p: Record<string, any>, t = c.t): number {
+  const info = c.mediaInfo(id);
+  if (!info || !info.duration) return 0;
+  const start = Math.max(0, +p.start || 0);
+  const speed = +p.speed > 0 ? +p.speed : 1;
+  const end = +p.end > start ? Math.min(+p.end, info.duration) : info.duration;
+  let at = start + Math.max(0, t) * speed;
+  if (p.loop) at = start + ((at - start) % Math.max(0.1, end - start));
+  return Math.min(at, end - 0.001);
+}
+
+interface MediaDraw {
+  fit?: "cover" | "contain";
+  r?: number;
+  focus?: { x?: number; y?: number };
+  /** Slow camera on stills and clips: "in", "out", "left", "right", "up", "down" or "none". */
+  motion?: string;
+  /** Progress of the slow camera, 0..1. */
+  k?: number;
+  /** Media time override (defaults to mediaTime). */
+  at?: number;
+}
+
+/** Draws an image or video frame into a box with a slow camera; a neutral placeholder if it's missing. */
+function drawMedia(c: SceneCtx, ctx: Ctx, id: string | undefined, props: Record<string, any>, box: { x: number; y: number; w: number; h: number }, o: MediaDraw = {}) {
+  const { s } = c;
+  const u = s.u;
+  const r = o.r ?? 0;
+  const m = c.media(id, o.at ?? mediaTime(c, id, props));
+  ctx.save();
+  if (r > 0) {
+    D.rrect(ctx, box.x, box.y, box.w, box.h, r);
+    ctx.clip();
+  } else {
+    ctx.beginPath();
+    ctx.rect(box.x, box.y, box.w, box.h);
+    ctx.clip();
+  }
+  if (!m) {
+    const info = c.mediaInfo(id);
+    if (!info) c.warn(`Scene "${c.scene.id}": media "${str(id, "(none)")}" isn't uploaded yet.`);
+    const g = ctx.createLinearGradient(box.x, box.y, box.x + box.w, box.y + box.h);
+    g.addColorStop(0, D.solid(c.pal.softCard));
+    g.addColorStop(1, D.solid(c.pal.subtle));
+    ctx.fillStyle = c.theme === "light" ? "#E9EDF5" : "#1A1D24";
+    ctx.fillRect(box.x, box.y, box.w, box.h);
+    if (!info) {
+      const is = Math.min(box.w, box.h) * 0.16;
+      D.icon(ctx, "image", box.x + box.w / 2 - is / 2, box.y + box.h / 2 - is * 0.7, is, c.theme === "light" ? "#9AA3B2" : "#5A6070", 1, 1.6);
+      D.text(ctx, "Media goes here", box.x + box.w / 2, box.y + box.h / 2 + is * 0.75, Math.max(18 * u, is * 0.28), 500, c.theme === "light" ? "#9AA3B2" : "#5A6070", "center");
+    }
+    ctx.restore();
+    return false;
+  }
+  const fit = o.fit ?? "cover";
+  const iw = m.width;
+  const ih = m.height;
+  const base = fit === "cover" ? Math.max(box.w / iw, box.h / ih) : Math.min(box.w / iw, box.h / ih);
+  const k = clamp(o.k ?? 0);
+  const mo = o.motion ?? "none";
+  const zoom = mo === "in" ? 1 + 0.12 * k : mo === "out" ? 1.12 - 0.12 * k : mo === "none" ? 1 : 1.1;
+  const sc = base * zoom;
+  const dw = iw * sc;
+  const dh = ih * sc;
+  let fx = clamp(o.focus?.x ?? 0.5);
+  let fy = clamp(o.focus?.y ?? 0.5);
+  if (mo === "left") fx = lerp(0.8, 0.2, k);
+  if (mo === "right") fx = lerp(0.2, 0.8, k);
+  if (mo === "up") fy = lerp(0.8, 0.2, k);
+  if (mo === "down") fy = lerp(0.2, 0.8, k);
+  ctx.drawImage(m.source, box.x + (box.w - dw) * fx, box.y + (box.h - dh) * fy, dw, dh);
+  ctx.restore();
+  return true;
+}
+
 interface Focus { x: number; y: number; w: number; h: number; at: number; label?: string; spotlight?: boolean; zoom?: number }
 interface CursorPt { x: number; y: number; at: number; click?: boolean }
 
 const screenshot: Template = (c) => {
   const { ctx, s, p, pal, t } = c;
   const u = s.u;
-  const img = c.image(p.image);
-  const ar = img ? img.width / img.height : 16 / 10;
+  const mediaId = p.video ?? p.image;
+  const info = c.mediaInfo(mediaId);
+  const frameNow = c.media(mediaId, mediaTime(c, mediaId, p));
+  const img = frameNow ? frameNow.source : null;
+  const ar = info ? info.width / info.height : img ? img.width / img.height : 16 / 10;
   const frameKind: "browser" | "phone" | "none" = p.frame ?? (ar < 0.8 ? "phone" : "browser");
   const hasText = !!(p.title || p.sub || p.kicker);
   // regions: text block and the device frame
@@ -466,186 +545,194 @@ const screenshot: Template = (c) => {
     const ty = s.landscape ? s.safe.y + s.safe.h / 2 - 160 * u : textBox.y;
     headerBlock(c, textBox.x, ty, textBox.w, { kicker: p.kicker, title: p.title, sub: p.sub, size: titleSize, start: 0.1, highlight: arr(p.highlight) });
   }
-  // frame entry
-  const ep = sp(t - 0.15, 0.95);
-  const radius = (frameKind === "phone" ? fw * 0.13 : 22 * u);
-  ctx.save();
-  ctx.globalAlpha *= clamp(ep * 1.4);
-  ctx.translate(0, (1 - ep) * 70 * u);
-  scaleAbout(ctx, fx + fw / 2, fy + fh / 2, 0.94 + 0.06 * ep);
-  // device body
-  let screen = { x: fx, y: fy, w: fw, h: fh, r: radius };
-  if (frameKind === "browser") {
-    D.card(ctx, fx, fy, fw, fh, radius, "#FFFFFF", u, { border: c.theme === "light" ? pal.cardBorder : undefined, elevation: 1.2, keepRadius: true });
-    const bh = fw * chrome;
-    ctx.fillStyle = UI.bar;
+  // 3D tilt for product shots (glass and neon looks lean them by default); it flattens when the camera starts to zoom
+  const tiltMode = p.tilt ?? (D.activeLook().tilt ? (s.landscape ? "left" : "back") : "none");
+  const firstFocus = arr<Focus>(p.focus).reduce((m, f) => Math.min(m, +f.at || 0), Infinity);
+  const flat = Number.isFinite(firstFocus) ? spCalm(t - (firstFocus - 0.45), 0.9) : 0;
+  const tilt = D.tiltFor(tiltMode, spCalm(t - 0.1, 1.6), t, flat);
+  const device = (ctx: Ctx) => {
+    // frame entry
+    const ep = sp(t - 0.15, 0.95);
+    const radius = (frameKind === "phone" ? fw * 0.13 : 22 * u);
     ctx.save();
-    D.rrect(ctx, fx, fy, fw, fh, radius);
-    ctx.clip();
-    ctx.fillRect(fx, fy, fw, bh);
-    ctx.fillStyle = UI.line;
-    ctx.fillRect(fx, fy + bh - 1, fw, Math.max(1, u * 1.5));
-    ctx.restore();
-    const dot = bh * 0.2;
-    for (let i = 0; i < 3; i++) {
-      ctx.beginPath();
-      ctx.arc(fx + bh * 0.5 + i * dot * 2.6, fy + bh / 2, dot / 2, 0, Math.PI * 2);
-      ctx.fillStyle = "#DADDE4";
+    ctx.globalAlpha *= clamp(ep * 1.4);
+    ctx.translate(0, (1 - ep) * 70 * u);
+    scaleAbout(ctx, fx + fw / 2, fy + fh / 2, 0.94 + 0.06 * ep);
+    // device body
+    let screen = { x: fx, y: fy, w: fw, h: fh, r: radius };
+    if (frameKind === "browser") {
+      D.card(ctx, fx, fy, fw, fh, radius, "#FFFFFF", u, { border: c.theme === "light" ? pal.cardBorder : undefined, elevation: 1.2, keepRadius: true });
+      const bh = fw * chrome;
+      ctx.fillStyle = UI.bar;
+      ctx.save();
+      D.rrect(ctx, fx, fy, fw, fh, radius);
+      ctx.clip();
+      ctx.fillRect(fx, fy, fw, bh);
+      ctx.fillStyle = UI.line;
+      ctx.fillRect(fx, fy + bh - 1, fw, Math.max(1, u * 1.5));
+      ctx.restore();
+      const dot = bh * 0.2;
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.arc(fx + bh * 0.5 + i * dot * 2.6, fy + bh / 2, dot / 2, 0, Math.PI * 2);
+        ctx.fillStyle = "#DADDE4";
+        ctx.fill();
+      }
+      const url = str(p.url, "app.taxstreem.com");
+      const us = bh * 0.34;
+      const uw = Math.min(fw * 0.5, D.measure(ctx, url, us, 500) + bh * 1.4);
+      D.rrect(ctx, fx + fw / 2 - uw / 2, fy + bh * 0.2, uw, bh * 0.6, bh * 0.3);
+      ctx.fillStyle = "#FFFFFF";
       ctx.fill();
+      D.icon(ctx, "lock", fx + fw / 2 - uw / 2 + bh * 0.28, fy + bh / 2 - us * 0.5, us, UI.quiet, 1, 2.2);
+      D.text(ctx, url, fx + fw / 2 + bh * 0.18, fy + bh / 2 + us * 0.36, us, 500, UI.muted, "center");
+      screen = { x: fx, y: fy + bh, w: fw, h: fh - bh, r: 0 };
+    } else if (frameKind === "phone") {
+      D.card(ctx, fx, fy, fw, fh, radius, "#0A0A0A", u, { elevation: 1.3, keepRadius: true, surface: D.activeLook().surface === "sticker" ? "sticker" : "solid" });
+      const b = fw * bez;
+      screen = { x: fx + b, y: fy + b, w: fw - 2 * b, h: fh - 2 * b, r: radius - b };
+    } else {
+      D.card(ctx, fx, fy, fw, fh, radius, "#FFFFFF", u, { border: c.theme === "light" ? pal.cardBorder : undefined, elevation: 1.2, keepRadius: true });
+      screen = { x: fx, y: fy, w: fw, h: fh, r: radius };
     }
-    const url = str(p.url, "app.taxstreem.com");
-    const us = bh * 0.34;
-    const uw = Math.min(fw * 0.5, D.measure(ctx, url, us, 500) + bh * 1.4);
-    D.rrect(ctx, fx + fw / 2 - uw / 2, fy + bh * 0.2, uw, bh * 0.6, bh * 0.3);
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fill();
-    D.icon(ctx, "lock", fx + fw / 2 - uw / 2 + bh * 0.28, fy + bh / 2 - us * 0.5, us, UI.quiet, 1, 2.2);
-    D.text(ctx, url, fx + fw / 2 + bh * 0.18, fy + bh / 2 + us * 0.36, us, 500, UI.muted, "center");
-    screen = { x: fx, y: fy + bh, w: fw, h: fh - bh, r: 0 };
-  } else if (frameKind === "phone") {
-    D.card(ctx, fx, fy, fw, fh, radius, "#0A0A0A", u, { elevation: 1.3, keepRadius: true, surface: D.activeLook().surface === "sticker" ? "sticker" : "solid" });
-    const b = fw * bez;
-    screen = { x: fx + b, y: fy + b, w: fw - 2 * b, h: fh - 2 * b, r: radius - b };
-  } else {
-    D.card(ctx, fx, fy, fw, fh, radius, "#FFFFFF", u, { border: c.theme === "light" ? pal.cardBorder : undefined, elevation: 1.2, keepRadius: true });
-    screen = { x: fx, y: fy, w: fw, h: fh, r: radius };
-  }
-  // screen content with the camera: base size covers the screen, focus regions zoom in
-  const bw = crop ? Math.max(screen.w, screen.h * ar) : screen.w;
-  const bh = crop ? bw / ar : screen.h;
-  const focus = arr<Focus>(p.focus).map((f) => ({ ...f, x: clamp(+f.x), y: clamp(+f.y), w: clamp(+f.w || 0.3, 0.02, 1), h: clamp(+f.h || 0.2, 0.02, 1), at: +f.at || 0 }));
-  const zFor = (f: Focus) => clamp(f.zoom ?? Math.min((0.8 * screen.w) / (f.w * bw), (0.8 * screen.h) / (f.h * bh)), 1, 3.2);
-  const clampC = (v: number, visible: number) => (visible >= 1 ? 0.5 : clamp(v, visible / 2, 1 - visible / 2));
-  const view = p.view ?? {};
-  const rest = { cx: clampC(view.x ?? 0.5, screen.w / bw), cy: clampC(view.y ?? 0.5, screen.h / bh) };
-  const steps = (key: "cx" | "cy" | "z") =>
-    focus.map((f) => {
-      const zf = zFor(f);
-      const v = key === "z" ? zf : key === "cx" ? clampC(f.x + f.w / 2, screen.w / (bw * zf)) : clampC(f.y + f.h / 2, screen.h / (bh * zf));
-      return { at: f.at, to: v };
+    // screen content with the camera: base size covers the screen, focus regions zoom in
+    const bw = crop ? Math.max(screen.w, screen.h * ar) : screen.w;
+    const bh = crop ? bw / ar : screen.h;
+    const focus = arr<Focus>(p.focus).map((f) => ({ ...f, x: clamp(+f.x), y: clamp(+f.y), w: clamp(+f.w || 0.3, 0.02, 1), h: clamp(+f.h || 0.2, 0.02, 1), at: +f.at || 0 }));
+    const zFor = (f: Focus) => clamp(f.zoom ?? Math.min((0.8 * screen.w) / (f.w * bw), (0.8 * screen.h) / (f.h * bh)), 1, 3.2);
+    const clampC = (v: number, visible: number) => (visible >= 1 ? 0.5 : clamp(v, visible / 2, 1 - visible / 2));
+    const view = p.view ?? {};
+    const rest = { cx: clampC(view.x ?? 0.5, screen.w / bw), cy: clampC(view.y ?? 0.5, screen.h / bh) };
+    const steps = (key: "cx" | "cy" | "z") =>
+      focus.map((f) => {
+        const zf = zFor(f);
+        const v = key === "z" ? zf : key === "cx" ? clampC(f.x + f.w / 2, screen.w / (bw * zf)) : clampC(f.y + f.h / 2, screen.h / (bh * zf));
+        return { at: f.at, to: v };
+      });
+    const cx = springSteps(t, rest.cx, steps("cx"), 1.1 * M().settle);
+    const cy = springSteps(t, rest.cy, steps("cy"), 1.1 * M().settle);
+    const z = springSteps(t, 1, steps("z"), 1.1 * M().settle);
+    const dw = bw * z;
+    const dh = bh * z;
+    const dx = screen.x + screen.w / 2 - cx * dw;
+    const dy = screen.y + screen.h / 2 - cy * dh;
+    const map = (nx: number, ny: number) => ({ x: dx + nx * dw, y: dy + ny * dh });
+    let active = -1;
+    focus.forEach((f, i) => {
+      if (t >= f.at) active = i;
     });
-  const cx = springSteps(t, rest.cx, steps("cx"), 1.1 * M().settle);
-  const cy = springSteps(t, rest.cy, steps("cy"), 1.1 * M().settle);
-  const z = springSteps(t, 1, steps("z"), 1.1 * M().settle);
-  const dw = bw * z;
-  const dh = bh * z;
-  const dx = screen.x + screen.w / 2 - cx * dw;
-  const dy = screen.y + screen.h / 2 - cy * dh;
-  const map = (nx: number, ny: number) => ({ x: dx + nx * dw, y: dy + ny * dh });
-  let active = -1;
-  focus.forEach((f, i) => {
-    if (t >= f.at) active = i;
-  });
-  ctx.save();
-  if (screen.r > 0) D.rrect(ctx, screen.x, screen.y, screen.w, screen.h, screen.r);
-  else if (frameKind === "browser") {
-    // round only the bottom corners
-    ctx.beginPath();
-    const r = radius;
-    ctx.moveTo(screen.x, screen.y);
-    ctx.lineTo(screen.x + screen.w, screen.y);
-    ctx.lineTo(screen.x + screen.w, screen.y + screen.h - r);
-    ctx.arcTo(screen.x + screen.w, screen.y + screen.h, screen.x + screen.w - r, screen.y + screen.h, r);
-    ctx.lineTo(screen.x + r, screen.y + screen.h);
-    ctx.arcTo(screen.x, screen.y + screen.h, screen.x, screen.y + screen.h - r, r);
-    ctx.closePath();
-  } else ctx.rect(screen.x, screen.y, screen.w, screen.h);
-  ctx.clip();
-  ctx.fillStyle = UI.bar;
-  ctx.fillRect(screen.x, screen.y, screen.w, screen.h);
-  if (img) ctx.drawImage(img, dx, dy, dw, dh);
-  else {
-    c.warn(`Scene "${c.scene.id}": screenshot "${str(p.image, "(none)")}" isn't uploaded yet.`);
-    D.text(ctx, "Screenshot goes here", screen.x + screen.w / 2, screen.y + screen.h / 2, 34 * u, 500, UI.quiet, "center");
-  }
-  // spotlight: dim around the active focus region
-  if (active >= 0 && focus[active].spotlight !== false && (focus[active].spotlight || focus[active].label)) {
-    const f = focus[active];
-    const next = focus[active + 1]?.at ?? Infinity;
-    const sp = clamp(remap(t, f.at + 0.5, f.at + 0.9, 0, 1)) * clamp(remap(t, next - 0.4, next, 1, 0));
-    if (sp > 0.01) {
-      const a = map(f.x, f.y);
-      const b = map(f.x + f.w, f.y + f.h);
-      ctx.save();
-      ctx.globalAlpha = 0.5 * sp;
-      ctx.fillStyle = "#0A0A0A";
-      const pad = 10 * u;
-      const veil = new Path2D();
-      veil.rect(screen.x, screen.y, screen.w, screen.h);
-      veil.addPath(D.rrectPath(a.x - pad, a.y - pad, b.x - a.x + 2 * pad, b.y - a.y + 2 * pad, 16 * u));
-      ctx.fill(veil, "evenodd");
-      ctx.restore();
-      ctx.save();
-      ctx.globalAlpha = sp;
-      D.rrect(ctx, a.x - pad, a.y - pad, b.x - a.x + 2 * pad, b.y - a.y + 2 * pad, 16 * u);
-      ctx.strokeStyle = pal.callout;
-      ctx.lineWidth = 4 * u;
-      ctx.stroke();
-      ctx.restore();
-    }
-  }
-  ctx.restore();
-  if (frameKind === "phone") {
-    // dynamic island
-    const iw = screen.w * 0.28;
-    D.rrect(ctx, screen.x + screen.w / 2 - iw / 2, screen.y + screen.w * 0.03, iw, screen.w * 0.075, screen.w * 0.04);
-    ctx.fillStyle = "#0A0A0A";
-    ctx.fill();
-  }
-  // callout labels (drawn above the frame, may overflow it)
-  focus.forEach((f, i) => {
-    if (!f.label) return;
-    const next = focus[i + 1]?.at ?? Infinity;
-    const lp = sp(t - (f.at + 0.75), 0.6) * clamp(remap(t, next - 0.35, next, 1, 0));
-    if (lp <= 0.01) return;
-    const b = map(f.x + f.w, f.y + f.h);
-    const a = map(f.x, f.y);
-    const ls = (s.portrait ? 30 : 28) * u;
-    const lw = D.measure(ctx, f.label, ls, 600) + 56 * u;
-    const lh = ls * 2.1;
-    const lx = clamp(a.x + (b.x - a.x) / 2 - lw / 2, screen.x + 12 * u, screen.x + screen.w - lw - 12 * u);
-    let ly = b.y + 22 * u;
-    if (ly + lh > screen.y + screen.h - 12 * u) ly = a.y - lh - 22 * u;
-    ly = clamp(ly, screen.y + 12 * u, screen.y + screen.h - lh - 12 * u);
     ctx.save();
-    ctx.globalAlpha *= clamp(lp * 1.3);
-    scaleAbout(ctx, lx + lw / 2, ly + lh / 2, 0.9 + 0.1 * lp);
-    D.card(ctx, lx, ly, lw, lh, lh / 2, pal.callout, u, { glow: true, elevation: 0.6, keepRadius: true });
-    D.text(ctx, f.label, lx + lw / 2, ly + lh / 2 + ls * 0.36, ls, 600, pal.calloutFg, "center");
-    ctx.restore();
-  });
-  // cursor
-  const pts = arr<CursorPt>(p.cursor).map((q) => ({ x: clamp(+q.x), y: clamp(+q.y), at: +q.at || 0, click: q.click !== false }));
-  if (pts.length) {
-    const travel = 0.85;
-    const start = { x: 0.92, y: 1.08 };
-    const sx = springSteps(t, start.x, pts.map((q) => ({ at: q.at - travel, to: q.x })), travel * 1.1);
-    const sy = springSteps(t, start.y, pts.map((q) => ({ at: q.at - travel, to: q.y })), travel * 1.1);
-    const pos = map(sx, sy);
-    const appear = clamp(remap(t, pts[0].at - travel - 0.1, pts[0].at - travel + 0.25, 0, 1));
-    let press = 1;
-    for (const q of pts) {
-      if (!q.click) continue;
-      const k = t - q.at;
-      if (k > -0.06 && k < 0.6) {
-        press = Math.min(press, 1 - 0.14 * clamp(1 - Math.abs(k - 0.04) / 0.12));
-        if (k >= 0) {
-          const rp = ease.outCubic(k / 0.6);
-          const qp = map(q.x, q.y);
-          ctx.save();
-          ctx.globalAlpha = (1 - rp) * 0.9;
-          ctx.strokeStyle = pal.callout;
-          ctx.lineWidth = 5 * u;
-          ctx.beginPath();
-          ctx.arc(qp.x, qp.y, 14 * u + rp * 48 * u, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.restore();
-        }
+    if (screen.r > 0) D.rrect(ctx, screen.x, screen.y, screen.w, screen.h, screen.r);
+    else if (frameKind === "browser") {
+      // round only the bottom corners
+      ctx.beginPath();
+      const r = radius;
+      ctx.moveTo(screen.x, screen.y);
+      ctx.lineTo(screen.x + screen.w, screen.y);
+      ctx.lineTo(screen.x + screen.w, screen.y + screen.h - r);
+      ctx.arcTo(screen.x + screen.w, screen.y + screen.h, screen.x + screen.w - r, screen.y + screen.h, r);
+      ctx.lineTo(screen.x + r, screen.y + screen.h);
+      ctx.arcTo(screen.x, screen.y + screen.h, screen.x, screen.y + screen.h - r, r);
+      ctx.closePath();
+    } else ctx.rect(screen.x, screen.y, screen.w, screen.h);
+    ctx.clip();
+    ctx.fillStyle = UI.bar;
+    ctx.fillRect(screen.x, screen.y, screen.w, screen.h);
+    if (img) ctx.drawImage(img, dx, dy, dw, dh);
+    else if (!info) {
+      c.warn(`Scene "${c.scene.id}": screenshot "${str(mediaId, "(none)")}" isn't uploaded yet.`);
+      D.text(ctx, "Screenshot goes here", screen.x + screen.w / 2, screen.y + screen.h / 2, 34 * u, 500, UI.quiet, "center");
+    }
+    // spotlight: dim around the active focus region
+    if (active >= 0 && focus[active].spotlight !== false && (focus[active].spotlight || focus[active].label)) {
+      const f = focus[active];
+      const next = focus[active + 1]?.at ?? Infinity;
+      const sp = clamp(remap(t, f.at + 0.5, f.at + 0.9, 0, 1)) * clamp(remap(t, next - 0.4, next, 1, 0));
+      if (sp > 0.01) {
+        const a = map(f.x, f.y);
+        const b = map(f.x + f.w, f.y + f.h);
+        ctx.save();
+        ctx.globalAlpha = 0.5 * sp;
+        ctx.fillStyle = "#0A0A0A";
+        const pad = 10 * u;
+        const veil = new Path2D();
+        veil.rect(screen.x, screen.y, screen.w, screen.h);
+        veil.addPath(D.rrectPath(a.x - pad, a.y - pad, b.x - a.x + 2 * pad, b.y - a.y + 2 * pad, 16 * u));
+        ctx.fill(veil, "evenodd");
+        ctx.restore();
+        ctx.save();
+        ctx.globalAlpha = sp;
+        D.rrect(ctx, a.x - pad, a.y - pad, b.x - a.x + 2 * pad, b.y - a.y + 2 * pad, 16 * u);
+        ctx.strokeStyle = pal.callout;
+        ctx.lineWidth = 4 * u;
+        ctx.stroke();
+        ctx.restore();
       }
     }
-    if (appear > 0) D.cursor(ctx, pos.x, pos.y, 46 * u * press, appear);
-  }
-  ctx.restore();
+    ctx.restore();
+    if (frameKind === "phone") {
+      // dynamic island
+      const iw = screen.w * 0.28;
+      D.rrect(ctx, screen.x + screen.w / 2 - iw / 2, screen.y + screen.w * 0.03, iw, screen.w * 0.075, screen.w * 0.04);
+      ctx.fillStyle = "#0A0A0A";
+      ctx.fill();
+    }
+    // callout labels (drawn above the frame, may overflow it)
+    focus.forEach((f, i) => {
+      if (!f.label) return;
+      const next = focus[i + 1]?.at ?? Infinity;
+      const lp = sp(t - (f.at + 0.75), 0.6) * clamp(remap(t, next - 0.35, next, 1, 0));
+      if (lp <= 0.01) return;
+      const b = map(f.x + f.w, f.y + f.h);
+      const a = map(f.x, f.y);
+      const ls = (s.portrait ? 30 : 28) * u;
+      const lw = D.measure(ctx, f.label, ls, 600) + 56 * u;
+      const lh = ls * 2.1;
+      const lx = clamp(a.x + (b.x - a.x) / 2 - lw / 2, screen.x + 12 * u, screen.x + screen.w - lw - 12 * u);
+      let ly = b.y + 22 * u;
+      if (ly + lh > screen.y + screen.h - 12 * u) ly = a.y - lh - 22 * u;
+      ly = clamp(ly, screen.y + 12 * u, screen.y + screen.h - lh - 12 * u);
+      ctx.save();
+      ctx.globalAlpha *= clamp(lp * 1.3);
+      scaleAbout(ctx, lx + lw / 2, ly + lh / 2, 0.9 + 0.1 * lp);
+      D.card(ctx, lx, ly, lw, lh, lh / 2, pal.callout, u, { glow: true, elevation: 0.6, keepRadius: true });
+      D.text(ctx, f.label, lx + lw / 2, ly + lh / 2 + ls * 0.36, ls, 600, pal.calloutFg, "center");
+      ctx.restore();
+    });
+    // cursor
+    const pts = arr<CursorPt>(p.cursor).map((q) => ({ x: clamp(+q.x), y: clamp(+q.y), at: +q.at || 0, click: q.click !== false }));
+    if (pts.length) {
+      const travel = 0.85;
+      const start = { x: 0.92, y: 1.08 };
+      const sx = springSteps(t, start.x, pts.map((q) => ({ at: q.at - travel, to: q.x })), travel * 1.1);
+      const sy = springSteps(t, start.y, pts.map((q) => ({ at: q.at - travel, to: q.y })), travel * 1.1);
+      const pos = map(sx, sy);
+      const appear = clamp(remap(t, pts[0].at - travel - 0.1, pts[0].at - travel + 0.25, 0, 1));
+      let press = 1;
+      for (const q of pts) {
+        if (!q.click) continue;
+        const k = t - q.at;
+        if (k > -0.06 && k < 0.6) {
+          press = Math.min(press, 1 - 0.14 * clamp(1 - Math.abs(k - 0.04) / 0.12));
+          if (k >= 0) {
+            const rp = ease.outCubic(k / 0.6);
+            const qp = map(q.x, q.y);
+            ctx.save();
+            ctx.globalAlpha = (1 - rp) * 0.9;
+            ctx.strokeStyle = pal.callout;
+            ctx.lineWidth = 5 * u;
+            ctx.beginPath();
+            ctx.arc(qp.x, qp.y, 14 * u + rp * 48 * u, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
+      }
+      if (appear > 0) D.cursor(ctx, pos.x, pos.y, 46 * u * press, appear);
+    }
+    ctx.restore();
+  };
+  D.tilted(ctx, s, { x: fx, y: fy, w: fw, h: fh }, tilt, device as (g: OffscreenCanvasRenderingContext2D) => void);
 };
 
 const features: Template = (c) => {
@@ -1190,6 +1277,837 @@ const logoSting: Template = (c) => {
   }
 };
 
+// ---------------------------------------------------------------- media templates
+
+/** A palette for text laid over photos and video: light text on a dark scrim, or dark on light. */
+function overlayPalette(c: SceneCtx, overlay: string): Palette {
+  if (overlay === "light") return D.palette("light");
+  const dark = D.palette("dark");
+  return { ...dark, fg: "#FFFFFF", muted: "rgba(255,255,255,0.86)" };
+}
+
+function scrim(ctx: Ctx, s: Stage, overlay: string, position: string, box = { x: 0, y: 0, w: s.W, h: s.H }) {
+  if (overlay === "none") return;
+  const C = D.activeColors();
+  if (overlay === "brand") {
+    ctx.fillStyle = D.solid(D.palette("blue").bg);
+    ctx.globalAlpha = 0.5;
+    ctx.fillRect(box.x, box.y, box.w, box.h);
+    ctx.globalAlpha = 1;
+  }
+  const light = overlay === "light";
+  const base = light ? "255,255,255" : "8,10,14";
+  const g =
+    position === "top"
+      ? ctx.createLinearGradient(0, box.y, 0, box.y + box.h)
+      : position === "center"
+        ? null
+        : ctx.createLinearGradient(0, box.y + box.h, 0, box.y);
+  if (g) {
+    g.addColorStop(0, `rgba(${base},${light ? 0.92 : 0.82})`);
+    g.addColorStop(0.45, `rgba(${base},${light ? 0.55 : 0.4})`);
+    g.addColorStop(1, `rgba(${base},0)`);
+    ctx.fillStyle = g;
+  } else ctx.fillStyle = `rgba(${base},${light ? 0.55 : 0.45})`;
+  ctx.fillRect(box.x, box.y, box.w, box.h);
+  void C;
+}
+
+/** Full-bleed photo or video with a slow camera and optional headline over a scrim. */
+const media: Template = (c) => {
+  const { ctx, s, p, t, d } = c;
+  const u = s.u;
+  const id = p.media ?? p.video ?? p.image;
+  const info = c.mediaInfo(id);
+  const position: string = p.position ?? "bottom";
+  const hasText = !!(p.headline || p.kicker || p.sub);
+  const overlay: string = p.overlay ?? (hasText ? "dark" : "none");
+  const framed = p.frame === "card";
+  const ep = spCalm(t, 1.1);
+  const box = framed ? { x: s.safe.x, y: s.safe.y, w: s.safe.w, h: s.safe.h * (hasText && !s.landscape ? 0.62 : 1) } : { x: 0, y: 0, w: s.W, h: s.H };
+  const k = clamp(t / Math.max(1, d));
+  const motion = p.motion ?? (info?.video ? "none" : "in");
+  ctx.save();
+  if (framed) {
+    ctx.globalAlpha *= clamp(ep * 1.4);
+    ctx.translate(0, (1 - ep) * 50 * u);
+    D.card(ctx, box.x, box.y, box.w, box.h, 34 * u, c.pal.card, u, { elevation: 1.2 });
+  } else {
+    scaleAbout(ctx, s.W / 2, s.H / 2, 1.04 - 0.04 * ep);
+  }
+  drawMedia(c, ctx, id, p, box, { r: framed ? D.radius(34 * u) : 0, motion, k: ease.smooth(k), focus: p.focus, fit: p.fit });
+  if (!framed) scrim(ctx, s, overlay, position);
+  ctx.restore();
+  if (!hasText) return;
+  const pal = framed ? c.pal : overlayPalette(c, overlay);
+  const cc: SceneCtx = { ...c, pal };
+  const align: "left" | "center" = p.align ?? (position === "center" ? "center" : "left");
+  const maxW = s.landscape ? s.safe.w * 0.62 : s.safe.w;
+  const x = align === "center" ? s.W / 2 : s.safe.x;
+  const size = (s.portrait ? 92 : s.landscape ? 96 : 76) * u;
+  const probe = D.layoutText(ctx, str(p.headline), x, 0, { maxWidth: maxW, size, weight: 500, maxLines: 4, lineHeight: 1.05 });
+  const blockH = (p.kicker ? 58 * u : 0) + (p.headline ? probe.height + 22 * u : 0) + (p.sub ? size * 0.44 * 1.36 * 2 + 10 * u : 0);
+  const y = framed
+    ? box.y + box.h + 56 * u
+    : position === "top"
+      ? s.safe.y
+      : position === "center"
+        ? s.safe.y + (s.safe.h - blockH) / 2
+        : s.safe.y + s.safe.h - blockH;
+  headerBlock(cc, x, y, maxW, { kicker: p.kicker, title: p.headline, sub: p.sub, size, align, start: 0.35, highlight: arr(p.highlight) });
+};
+
+/** Media on one side, text on the other (stacked in 9:16). */
+const split: Template = (c) => {
+  const { ctx, s, p, pal, t, d } = c;
+  const u = s.u;
+  const id = p.media ?? p.video ?? p.image;
+  const info = c.mediaInfo(id);
+  const bleed = p.frame === "bleed";
+  const right = p.side === "right";
+  const stacked = s.portrait;
+  const gap = (s.landscape ? 90 : 60) * u;
+  let mbox: { x: number; y: number; w: number; h: number };
+  let tbox: { x: number; y: number; w: number; h: number };
+  if (stacked) {
+    const mh = s.safe.h * (p.bullets?.length ? 0.5 : 0.56);
+    mbox = bleed ? { x: 0, y: 0, w: s.W, h: s.safe.y + mh } : { x: s.safe.x, y: s.safe.y, w: s.safe.w, h: mh };
+    tbox = { x: s.safe.x, y: s.safe.y + mh + gap, w: s.safe.w, h: s.safe.h - mh - gap };
+  } else {
+    const mw = s.safe.w * (s.landscape ? 0.5 : 0.48);
+    const mx = right ? s.safe.x + s.safe.w - mw : s.safe.x;
+    mbox = bleed ? { x: right ? s.W / 2 : 0, y: 0, w: s.W / 2, h: s.H } : { x: mx, y: s.safe.y, w: mw, h: s.safe.h };
+    const tx = bleed ? (right ? s.safe.x : s.W / 2 + gap * 0.6) : right ? s.safe.x : mx + mw + gap;
+    const tw = bleed ? s.W / 2 - gap * 0.6 - s.safe.x : s.safe.w - mw - gap;
+    tbox = { x: tx, y: s.safe.y, w: tw, h: s.safe.h };
+  }
+  // media
+  const ep = sp(t - 0.05, 0.9);
+  const k = clamp(t / Math.max(1, d));
+  const tiltMode = p.tilt ?? (D.activeLook().tilt && !bleed ? (right ? "right" : "left") : "none");
+  const tilt = D.tiltFor(stacked && tiltMode !== "none" ? "back" : tiltMode, spCalm(t - 0.05, 1.5), t);
+  const r = bleed ? 0 : 32 * u;
+  D.tilted(ctx, s, mbox, tilt, (g) => {
+    g.save();
+    g.globalAlpha *= clamp(ep * 1.4);
+    const dx = stacked ? 0 : (1 - ep) * (right ? 60 : -60) * u;
+    const dy = stacked ? (1 - ep) * 60 * u : 0;
+    g.translate(dx, dy);
+    if (!bleed) D.card(g, mbox.x, mbox.y, mbox.w, mbox.h, r, pal.card, u, { elevation: 1.2 });
+    drawMedia(c, g, id, p, mbox, { r: bleed ? 0 : D.radius(r), motion: p.motion ?? (info?.video ? "none" : "in"), k: ease.smooth(k), focus: p.focus, fit: p.fit });
+    g.restore();
+  });
+  // text
+  const titleS = (s.portrait ? 76 : s.landscape ? 78 : 58) * u;
+  const bullets = arr<string>(p.bullets).slice(0, 4);
+  const bS = (s.portrait ? 38 : s.landscape ? 36 : 30) * u;
+  const probe = D.layoutText(ctx, str(p.title), tbox.x, 0, { maxWidth: tbox.w, size: titleS, weight: 500, maxLines: 4 });
+  const subH = p.sub ? titleS * 0.42 * 1.36 * 2.2 : 0;
+  const blockH = (p.kicker ? 54 * u : 0) + (p.title ? probe.height + 22 * u : 0) + subH + bullets.length * bS * 1.9 + (p.cta ? 140 * u : 0);
+  const y0 = stacked ? tbox.y : tbox.y + Math.max(0, (tbox.h - blockH) / 2);
+  const hb = headerBlock(c, tbox.x, y0, tbox.w, { kicker: p.kicker, title: p.title, sub: p.sub, size: titleS, start: 0.35, highlight: arr(p.highlight) });
+  let y = hb.bottom + 18 * u;
+  bullets.forEach((b, i) => {
+    const bp = sp(t - (hb.end + 0.15 + i * 0.16 * M().stagger), 0.6);
+    withFade(ctx, bp, 12 * u, () => {
+      D.icon(ctx, "circle-check", tbox.x, y, bS, pal.accent, ease.outCubic(bp), 2);
+      const l = D.layoutText(ctx, b, tbox.x + bS * 1.5, y - bS * 0.05, { maxWidth: tbox.w - bS * 1.5, size: bS, weight: 400, maxLines: 2, lineHeight: 1.25 });
+      D.drawLayout(ctx, l, pal.fg);
+    });
+    y += bS * 1.9;
+  });
+  if (p.cta) {
+    const ph = 96 * u;
+    withFade(ctx, sp(t - (hb.end + 0.3 + bullets.length * 0.16), 0.7), 16 * u, () => D.pill(ctx, tbox.x, y + 24 * u, ph, str(p.cta), pal.pillFill, pal.pillFg, { glow: true, u }));
+  }
+};
+
+/** Up to five photos or clips in a collage that slides together, with a headline. */
+const collage: Template = (c) => {
+  const { ctx, s, p, pal, t, d } = c;
+  const u = s.u;
+  const items = arr<{ media?: string; image?: string; video?: string; caption?: string; start?: number; focus?: { x: number; y: number } }>(p.items).slice(0, 5);
+  const n = Math.max(1, items.length);
+  const hasHead = !!(p.headline || p.kicker);
+  const headTop = p.position !== "bottom";
+  const headS = (s.portrait ? 96 : s.landscape ? 100 : 76) * u;
+  const headW = s.landscape ? s.safe.w * 0.36 : s.safe.w;
+  const probe = hasHead ? D.layoutText(ctx, str(p.headline), 0, 0, { maxWidth: headW, size: headS, weight: 500, maxLines: s.landscape ? 5 : 3 }) : null;
+  const headH = hasHead ? (p.kicker ? 58 * u : 0) + (probe?.height ?? 0) + 50 * u : 0;
+  const gap = 22 * u;
+  let area = { x: s.safe.x, y: s.safe.y + (headTop ? headH : 0), w: s.safe.w, h: s.safe.h - headH };
+  if (s.landscape && hasHead) area = { x: s.safe.x + headW + 70 * u, y: s.safe.y - 30 * u, w: s.safe.w - headW - 70 * u, h: s.safe.h + 60 * u };
+  // tile rectangles in fractions of the area
+  const L: number[][] =
+    n === 1 ? [[0, 0, 1, 1]]
+    : n === 2 ? [[0, 0, 0.5, 1], [0.5, 0.12, 0.5, 0.88]]
+    : n === 3 ? [[0, 0, 0.58, 0.62], [0.58, 0.1, 0.42, 0.52], [0.18, 0.62, 0.64, 0.38]]
+    : n === 4 ? [[0, 0, 0.5, 0.55], [0.5, 0.08, 0.5, 0.5], [0, 0.55, 0.5, 0.45], [0.5, 0.58, 0.5, 0.42]]
+    : [[0, 0, 0.5, 0.4], [0.5, 0.06, 0.5, 0.36], [0, 0.4, 0.5, 0.32], [0.5, 0.42, 0.5, 0.3], [0.18, 0.72, 0.64, 0.28]];
+  const st = Math.min(0.22, (d * 0.35) / n) * M().stagger;
+  const sticker = D.activeLook().surface === "sticker";
+  items.forEach((it, i) => {
+    const f = L[i];
+    const b = { x: area.x + f[0] * area.w + gap / 2, y: area.y + f[1] * area.h + gap / 2, w: f[2] * area.w - gap, h: f[3] * area.h - gap };
+    const at = 0.15 + i * st;
+    const q = sp(t - at, 0.85, 0.12);
+    if (q <= 0.001) return;
+    const fromLeft = i % 2 === 0;
+    const rot = (sticker ? (fromLeft ? -0.03 : 0.025) : 0) * clamp(q);
+    ctx.save();
+    ctx.globalAlpha *= clamp(q * 1.6);
+    ctx.translate(b.x + b.w / 2 + (1 - q) * (fromLeft ? -120 : 120) * u, b.y + b.h / 2 + (1 - q) * 40 * u);
+    ctx.rotate(rot + (1 - q) * (fromLeft ? -0.08 : 0.08));
+    ctx.translate(-(b.x + b.w / 2), -(b.y + b.h / 2));
+    const r = 30 * u;
+    D.card(ctx, b.x, b.y, b.w, b.h, r, pal.card, u, { elevation: 1 });
+    const id = it.media ?? it.video ?? it.image;
+    drawMedia(c, ctx, id, it, b, { r: D.radius(r), motion: c.mediaInfo(id)?.video ? "none" : i % 2 ? "out" : "in", k: ease.smooth(t / Math.max(1, d)), focus: it.focus, at: mediaTime(c, id, it, t - at) });
+    if (it.caption) {
+      const cs = (s.portrait ? 28 : 26) * u;
+      const cw = D.measure(ctx, it.caption, cs, 600) + 44 * u;
+      const ch = cs * 2;
+      const cp = sp(t - at - 0.35, 0.6, 0.2);
+      withFade(ctx, cp, 10 * u, () => {
+        D.card(ctx, b.x + 18 * u, b.y + b.h - ch - 18 * u, cw, ch, ch / 2, pal.pillFill, u, { elevation: 0.4, keepRadius: true });
+        D.text(ctx, it.caption!, b.x + 18 * u + cw / 2, b.y + b.h - 18 * u - ch / 2 + cs * 0.36, cs, 600, pal.pillFg, "center");
+      });
+    }
+    ctx.restore();
+  });
+  if (hasHead) {
+    const hy = s.landscape ? s.safe.y + (s.safe.h - headH) / 2 : headTop ? s.safe.y : s.safe.y + s.safe.h - headH + 40 * u;
+    headerBlock(c, s.safe.x, hy, headW, { kicker: p.kicker, title: p.headline, size: headS, start: 0.25 + n * st * 0.5, highlight: arr(p.highlight), maxLines: s.landscape ? 5 : 3 });
+  }
+};
+
+/** Icon tiles (or logos) that pop in as a row, grid or slow orbit. */
+const icons: Template = (c) => {
+  const { ctx, s, p, pal, t, d } = c;
+  const u = s.u;
+  const items = arr<{ icon?: string; image?: string; label?: string; highlight?: boolean }>(p.items).slice(0, 8);
+  const n = Math.max(1, items.length);
+  const layout: string = p.layout ?? (n <= 4 ? "row" : "grid");
+  const hasHead = !!(p.title || p.kicker);
+  const titleS = (s.portrait ? 82 : s.landscape ? 84 : 64) * u;
+  const st = Math.min(0.12, (d * 0.3) / n) * M().stagger;
+  const look = D.activeLook();
+  const drawTile = (it: (typeof items)[number], i: number, cx: number, cy: number, size: number, q: number) => {
+    if (q <= 0.001) return;
+    const float = Math.sin(t * 1.1 + i * 1.7) * 6 * u * clamp(t - 1.2);
+    ctx.save();
+    ctx.globalAlpha *= clamp(q * 1.5);
+    scaleAbout(ctx, cx, cy, 0.4 + 0.6 * q);
+    ctx.translate(0, float);
+    const hi = !!it.highlight;
+    const fill = hi ? D.solid(pal.accent) : look.surface === "glass" ? pal.card : pal.card;
+    D.card(ctx, cx - size / 2, cy - size / 2, size, size, size * 0.26, fill, u, { elevation: 0.9, border: pal.cardBorder, glow: hi });
+    const img = it.image ? c.media(it.image) : null;
+    if (img) D.image(ctx, img.source, cx - size * 0.36, cy - size * 0.36, size * 0.72, size * 0.72, "contain", 0);
+    else D.icon(ctx, it.icon ?? "sparkles", cx - size * 0.27, cy - size * 0.27, size * 0.54, hi ? pal.onAccent : pal.iconFg, ease.outCubic(q), 1.8);
+    if (it.label) {
+      const ls = Math.max(22 * u, size * 0.17);
+      D.text(ctx, it.label, cx, cy + size / 2 + ls * 1.6, ls, 500, pal.fg, "center");
+    }
+    ctx.restore();
+  };
+  if (layout === "orbit") {
+    const cx = s.W / 2;
+    const cy = s.safe.y + s.safe.h * (s.portrait ? 0.45 : 0.5);
+    const R = Math.min(s.safe.w, s.safe.h) * (s.portrait ? 0.4 : 0.38);
+    const size = Math.min(170 * u, R * 0.62);
+    // centre: the TaxStreem mark, or the title
+    const cp = sp(t - 0.1, 0.9);
+    if (p.title) {
+      const l = D.layoutText(ctx, str(p.title), cx, 0, { maxWidth: R * 1.25, size: titleS * 0.8, weight: 500, maxLines: 3, align: "center", highlight: arr(p.highlight) });
+      const l2 = D.layoutText(ctx, str(p.title), cx, cy - l.height / 2, { maxWidth: R * 1.25, size: l.size, minSize: l.size, weight: 500, maxLines: 99, align: "center", highlight: arr(p.highlight) });
+      const col = headColors(c, arr(p.highlight).length > 0);
+      riseWords(c, l2, 0.2, { color: col.color, hl: col.hl, dimAlpha: col.dimAlpha });
+    } else {
+      const mh = R * 0.42;
+      D.mark(ctx, cx - D.markWidth(mh) / 2, cy - mh / 2, mh, pal.markColor, clamp(cp * 1.5), cp);
+    }
+    // faint ring
+    ctx.save();
+    ctx.globalAlpha = 0.5 * clamp(cp);
+    ctx.strokeStyle = pal.track;
+    ctx.lineWidth = 2 * u;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+    const spin = t * 0.12;
+    items.forEach((it, i) => {
+      const a = -Math.PI / 2 + (i / n) * Math.PI * 2 + spin;
+      drawTile(it, i, cx + Math.cos(a) * R, cy + Math.sin(a) * R, size, sp(t - (0.35 + i * st), 0.7, 0.25));
+    });
+    return;
+  }
+  const cols = layout === "row" ? Math.min(n, s.portrait ? 4 : 6) : s.portrait ? Math.min(3, n) : Math.min(4, n);
+  const rows = Math.ceil(n / cols);
+  const labelH = items.some((x) => x.label) ? 70 * u : 0;
+  const size = Math.min((s.safe.w - (cols - 1) * 36 * u) / cols, (s.portrait ? 230 : 210) * u);
+  const gridW = cols * size + (cols - 1) * 36 * u;
+  const gridH = rows * (size + labelH) + (rows - 1) * 40 * u;
+  const headProbe = p.title ? D.layoutText(ctx, str(p.title), 0, 0, { maxWidth: s.safe.w, size: titleS, weight: 500, maxLines: 3, align: "center" }) : null;
+  const headH = hasHead ? (p.kicker ? 54 * u : 0) + (headProbe?.height ?? 0) + 80 * u : 0;
+  const top = s.safe.y + (s.safe.h - headH - gridH) * (s.portrait ? 0.42 : 0.5);
+  let end = 0.1;
+  if (hasHead) end = headerBlock(c, s.W / 2, top, s.safe.w, { kicker: p.kicker, title: p.title, size: titleS, align: "center", highlight: arr(p.highlight) }).end;
+  const gy = top + headH;
+  items.forEach((it, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const inRow = Math.min(cols, n - row * cols);
+    const rowW = inRow * size + (inRow - 1) * 36 * u;
+    const x0 = s.W / 2 - rowW / 2;
+    const cx = x0 + col * (size + 36 * u) + size / 2;
+    const cy = gy + row * (size + labelH + 40 * u) + size / 2;
+    drawTile(it, i, cx, cy, size, sp(t - ((hasHead ? end * 0.7 : 0.2) + i * st), 0.7, 0.25));
+  });
+  void gridW;
+};
+
+interface Beat { text: string; at?: number; highlight?: boolean | string[] }
+
+/** Big kinetic type: phrases replace each other (or stack) on the beat. */
+const kinetic: Template = (c) => {
+  const { ctx, s, p, pal, t, d } = c;
+  const u = s.u;
+  const raw = Array.isArray(p.lines) ? p.lines : str(p.text).split(/\s*\/\s*|\n+/).filter(Boolean);
+  const lines: Beat[] = raw.slice(0, 10).map((x: any) => (typeof x === "string" ? { text: x } : { text: str(x?.text), at: x?.at, highlight: x?.highlight }));
+  const n = Math.max(1, lines.length);
+  const stack = p.mode === "stack";
+  const span = Math.max(0.4, (d - 0.35) / n);
+  const ats = lines.map((l, i) => (Number.isFinite(+l.at!) && l.at !== undefined ? +l.at! : 0.12 + i * span));
+  const align: "left" | "center" = p.align ?? "center";
+  const x = align === "center" ? s.W / 2 : s.safe.x;
+  const big = p.size === "l" ? 0.72 : 1;
+  const size = (s.portrait ? 190 : s.landscape ? 200 : 160) * u * big;
+  // optional video or photo behind the words
+  if (p.media) {
+    drawMedia(c, ctx, p.media, p, { x: 0, y: 0, w: s.W, h: s.H }, { motion: "in", k: ease.smooth(t / Math.max(1, d)) });
+    scrim(ctx, s, p.overlay ?? "dark", "center");
+  }
+  const palT = p.media ? overlayPalette(c, p.overlay ?? "dark") : pal;
+  const cc: SceneCtx = { ...c, pal: palT };
+  const lay = (l: Beat, y: number, sz = size, exact = false) =>
+    D.layoutText(ctx, l.text, x, y, { maxWidth: s.safe.w, size: sz, minSize: exact ? sz : undefined, weight: 500, maxLines: 3, lineHeight: 1.0, align, highlight: l.highlight === true ? l.text.split(/\s+/) : Array.isArray(l.highlight) ? l.highlight : [] });
+  if (!stack) {
+    let i = 0;
+    for (let k = 0; k < n; k++) if (t >= ats[k] - 0.02) i = k;
+    const l = lines[i];
+    const probe = lay(l, 0);
+    const laid = lay(l, s.safe.y + s.safe.h * (s.portrait ? 0.45 : 0.5) - probe.height / 2, probe.size, true);
+    const next = i + 1 < n ? ats[i + 1] : Infinity;
+    const out = clamp((t - (next - 0.22)) / 0.22);
+    const col = headColors(cc, laid.words.some((w) => w.highlight));
+    ctx.save();
+    if (out > 0) {
+      ctx.globalAlpha *= 1 - out;
+      ctx.translate(0, -out * size * 0.25);
+      if (M().entry === "blur") ctx.filter = `blur(${(out * size * 0.12).toFixed(1)}px)`;
+    }
+    riseWords(cc, laid, ats[i], { color: col.color, hl: col.hl === col.color ? undefined : col.hl, dimAlpha: col.dimAlpha, stagger: Math.min(0.06, 0.4 / Math.max(1, laid.words.length)) });
+    ctx.restore();
+    return;
+  }
+  // stack: each phrase lands under the last; the block scrolls up to keep the newest in view
+  const probes = lines.map((l) => lay(l, 0, size * 0.62));
+  const lh = probes.map((q) => q.height + 18 * u);
+  const tops: number[] = [];
+  let acc = 0;
+  lh.forEach((h) => {
+    tops.push(acc);
+    acc += h;
+  });
+  const view = s.safe.h * (s.portrait ? 0.7 : 0.8);
+  const steps = lines.map((_, i) => ({ at: ats[i], to: Math.max(0, tops[i] + lh[i] - view) }));
+  const scroll = springSteps(t, 0, steps, 0.8 * M().settle);
+  const y0 = s.safe.y + Math.max(0, (s.safe.h - Math.min(acc, view)) / 2) - scroll;
+  lines.forEach((l, i) => {
+    if (t < ats[i] - 0.05) return;
+    const laid = lay(l, y0 + tops[i], probes[i].size, true);
+    const later = i < n - 1 && t > ats[i + 1] ? 0.38 : 1;
+    const col = headColors(cc, laid.words.some((w) => w.highlight));
+    ctx.save();
+    ctx.globalAlpha *= lerp(1, later, clamp((t - (ats[i + 1] ?? Infinity)) / 0.3));
+    riseWords(cc, laid, ats[i], { color: col.color, hl: col.hl === col.color ? undefined : col.hl, dimAlpha: col.dimAlpha });
+    ctx.restore();
+  });
+};
+
+// ---------------------------------------------------------------- native UI components
+
+/** Product UI pieces drawn natively (no screenshot needed): buttons, prompts, notifications and more. */
+const ui: Template = (c) => {
+  const { s, p } = c;
+  const kind: string = p.kind ?? "button";
+  const fn = UI_KINDS[kind];
+  if (!fn) {
+    c.warn(`Scene "${c.scene.id}": ui kind "${kind}" doesn't exist. Use ${Object.keys(UI_KINDS).join(", ")}.`);
+    return;
+  }
+  const u = s.u;
+  const hasHead = !!(p.title || p.kicker);
+  const titleS = (s.portrait ? 78 : s.landscape ? 80 : 62) * u;
+  const cw = Math.min(s.safe.w, (s.landscape ? 1000 : s.square ? 860 : 980) * u);
+  const probe = p.title ? D.layoutText(c.ctx, str(p.title), 0, 0, { maxWidth: s.safe.w, size: titleS, weight: 500, maxLines: 3, align: "center" }) : null;
+  const headH = hasHead ? (p.kicker ? 54 * u : 0) + (probe?.height ?? 0) + (p.sub ? titleS * 0.42 * 1.36 * 2 + 10 * u : 0) + 70 * u : 0;
+  let end = 0.1;
+  let top = s.safe.y;
+  const est = fn.height(c, cw);
+  top = s.safe.y + Math.max(0, (s.safe.h - headH - est) * (s.portrait ? 0.42 : 0.5));
+  if (hasHead) end = headerBlock(c, s.W / 2, top, s.safe.w, { kicker: p.kicker, title: p.title, sub: p.sub, size: titleS, align: "center", highlight: arr(p.highlight) }).end;
+  const box = { x: s.W / 2 - cw / 2, y: top + headH, w: cw, h: est };
+  const start = hasHead ? Math.max(0.3, end * 0.7) : 0.15;
+  const tiltMode = p.tilt ?? "none";
+  D.tilted(c.ctx, s, box, D.tiltFor(tiltMode, spCalm(c.t - start, 1.4), c.t), (g) => fn.draw({ ...c, ctx: g }, box, start), 1);
+};
+
+interface UIKind {
+  height(c: SceneCtx, w: number): number;
+  draw(c: SceneCtx, box: { x: number; y: number; w: number; h: number }, start: number): void;
+}
+
+const glassy = () => D.activeLook().surface === "glass";
+
+const UI_KINDS: Record<string, UIKind> = {
+  button: {
+    height: (c) => (c.s.portrait ? 170 : 150) * c.s.u,
+    draw(c, box, start) {
+      const { ctx, s, p, pal, t, d } = c;
+      const u = s.u;
+      const h = box.h;
+      const label = str(p.label, "Get started");
+      const after = p.after ? str(p.after) : "";
+      const clickAt = Number.isFinite(+p.at) && p.at !== undefined ? +p.at : Math.max(start + 1.3, d * 0.5);
+      const size = h * 0.36;
+      const iconName = p.icon ?? (label.toLowerCase().includes("play") ? "play" : "");
+      const tw = Math.max(D.measure(ctx, label, size, 600, -0.01, "head"), after ? D.measure(ctx, after, size, 600, -0.01, "head") + size * 1.3 : 0);
+      const w = tw + h * 1.1 + (iconName ? size * 1.5 : 0);
+      const x = s.W / 2 - w / 2;
+      const y = box.y;
+      const q = sp(t - start, 0.8, 0.15);
+      const press = 1 - 0.07 * clamp(1 - Math.abs(t - clickAt) / 0.14);
+      const done = after ? spCalm(t - clickAt - 0.1, 0.5) : 0;
+      if (q <= 0.001) return;
+      ctx.save();
+      ctx.globalAlpha *= clamp(q * 1.5);
+      scaleAbout(ctx, s.W / 2, y + h / 2, (0.8 + 0.2 * q) * press);
+      const fill = glassy() ? "rgba(255,255,255,0.6)" : pal.pillFill;
+      const fg = glassy() ? D.solid(pal.accent) : pal.pillFg;
+      D.card(ctx, x, y, w, h, (h / 2) * clamp(D.activeLook().radius * 1.6, 0.3, 1), fill, u, { elevation: 1.2, glow: true, keepRadius: true, border: glassy() ? "rgba(255,255,255,0.9)" : undefined });
+      if (done > 0) {
+        ctx.save();
+        ctx.globalAlpha *= done;
+        D.rrect(ctx, x, y, w, h, (h / 2) * clamp(D.activeLook().radius * 1.6, 0.3, 1));
+        ctx.fillStyle = D.paint(ctx, pal.accent, x, y, x + w, y);
+        ctx.fill();
+        ctx.restore();
+      }
+      const draw = (txt: string, ic: string, col: string, a: number, dy: number) => {
+        if (a <= 0.01) return;
+        ctx.save();
+        ctx.globalAlpha *= a;
+        const iw = ic ? size * 1.5 : 0;
+        const total = iw + D.measure(ctx, txt, size, 600, -0.01, "head");
+        const x0 = s.W / 2 - total / 2;
+        if (ic) D.icon(ctx, ic, x0, y + h / 2 - size * 0.55 + dy, size * 1.1, col, 1, 2.2);
+        D.text(ctx, txt, x0 + iw, y + h / 2 + size * 0.36 + dy, size, 600, col, "left", -0.01, "head");
+        ctx.restore();
+      };
+      draw(label, iconName, fg, 1 - done, -done * h * 0.3);
+      if (after) draw(after, "check", pal.onAccent, done, (1 - done) * h * 0.3);
+      ctx.restore();
+      // ripple and cursor
+      if (t >= clickAt) {
+        const rp = ease.outCubic((t - clickAt) / 0.7);
+        ctx.save();
+        ctx.globalAlpha = (1 - rp) * 0.5;
+        ctx.strokeStyle = D.solid(pal.accent);
+        ctx.lineWidth = 4 * u;
+        D.rrect(ctx, x - rp * 40 * u, y - rp * 40 * u, w + rp * 80 * u, h + rp * 80 * u, h / 2 + rp * 40 * u);
+        ctx.stroke();
+        ctx.restore();
+      }
+      const mv = ease.inOutCubic((t - (clickAt - 0.95)) / 0.9);
+      if (mv > 0) {
+        const tx = s.W / 2 + w * 0.22;
+        const ty = y + h * 0.62;
+        D.cursor(ctx, lerp(s.W * 0.86, tx, mv), lerp(Math.min(s.H * 0.9, y + h + 420 * u), ty, mv), 64 * u * press, clamp(mv * 3), p.cursor === "arrow" ? "arrow" : "hand");
+      }
+    },
+  },
+  prompt: {
+    height: (c) => {
+      const u = c.s.u;
+      return (c.s.portrait ? 150 : 130) * u + (arr(c.p.chips).length ? 130 * u : 0);
+    },
+    draw(c, box, start) {
+      const { ctx, s, p, pal, t } = c;
+      const u = s.u;
+      const h = (s.portrait ? 150 : 130) * u;
+      const q = sp(t - start, 0.85);
+      if (q <= 0.001) return;
+      const r = (h / 2) * clamp(D.activeLook().radius * 1.4, 0.35, 1);
+      ctx.save();
+      ctx.globalAlpha *= clamp(q * 1.4);
+      ctx.translate(0, (1 - q) * 40 * u);
+      D.card(ctx, box.x, box.y, box.w, h, r, pal.card, u, { elevation: 1.2, border: pal.cardBorder, keepRadius: true });
+      const is = h * 0.34;
+      D.icon(ctx, p.icon ?? "sparkles", box.x + h * 0.36, box.y + h / 2 - is / 2, is, D.solid(pal.accent), 1, 2);
+      const tx = box.x + h * 0.36 + is + 24 * u;
+      const maxW = box.w - (tx - box.x) - h * 1.1;
+      const full = str(p.text);
+      const ts0 = h * 0.27;
+      const ts = clamp(ts0 * (maxW / Math.max(1, D.measure(ctx, full, ts0, 400))), ts0 * 0.72, ts0);
+      const typeAt = start + 0.6;
+      const cps = 24 / Math.max(0.5, M().stagger);
+      const nChars = Math.max(0, Math.floor((t - typeAt) * cps));
+      const shown = full.slice(0, nChars);
+      const doneAt = typeAt + full.length / cps;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(tx, box.y, maxW, h);
+      ctx.clip();
+      if (!shown) D.text(ctx, str(p.placeholder, "Ask anything"), tx, box.y + h / 2 + ts * 0.36, ts, 400, pal.cardMuted);
+      else {
+        const w = D.measure(ctx, shown, ts, 400);
+        const off = Math.max(0, w - maxW + 20 * u);
+        D.text(ctx, shown, tx - off, box.y + h / 2 + ts * 0.36, ts, 400, pal.cardFg);
+        if (t < doneAt + 1.2 && Math.floor(t * 2.4) % 2 === 0) {
+          ctx.fillStyle = D.solid(pal.accent);
+          ctx.fillRect(tx - off + w + 4 * u, box.y + h / 2 - ts * 0.6, 3 * u, ts * 1.2);
+        }
+      }
+      ctx.restore();
+      // send button
+      const bs = h * 0.62;
+      const bx = box.x + box.w - h * 0.19 - bs;
+      const by = box.y + (h - bs) / 2;
+      const ready = clamp((t - doneAt) / 0.3);
+      const press = 1 - 0.12 * clamp(1 - Math.abs(t - (doneAt + 0.45)) / 0.12);
+      ctx.save();
+      scaleAbout(ctx, bx + bs / 2, by + bs / 2, press);
+      ctx.beginPath();
+      ctx.arc(bx + bs / 2, by + bs / 2, bs / 2, 0, Math.PI * 2);
+      ctx.fillStyle = ready > 0.5 ? D.paint(ctx, pal.accent, bx, by, bx + bs, by + bs) : pal.subtle;
+      ctx.fill();
+      D.icon(ctx, "arrow-up", bx + bs * 0.25, by + bs * 0.25, bs * 0.5, ready > 0.5 ? pal.onAccent : pal.cardMuted, 1, 2.4);
+      ctx.restore();
+      ctx.restore();
+      // suggestion chips
+      const chips = arr<string>(p.chips).slice(0, 4);
+      let cx = box.x;
+      const cy = box.y + h + 40 * u;
+      const chS = (s.portrait ? 30 : 28) * u;
+      chips.forEach((ch, i) => {
+        const cwid = D.measure(ctx, ch, chS, 500) + 56 * u;
+        if (cx + cwid > box.x + box.w) return;
+        const cq = sp(t - (start + 0.35 + i * 0.12 * M().stagger), 0.6, 0.15);
+        withFade(ctx, cq, 16 * u, () => {
+          D.card(ctx, cx, cy, cwid, chS * 2.3, chS * 1.15, pal.card, u, { elevation: 0.4, border: pal.cardBorder, keepRadius: true });
+          D.text(ctx, ch, cx + cwid / 2, cy + chS * 1.15 + chS * 0.36, chS, 500, pal.cardFg, "center");
+        });
+        cx += cwid + 16 * u;
+      });
+    },
+  },
+  notifications: {
+    height: (c) => {
+      const n = Math.min(4, Math.max(1, arr(c.p.items).length));
+      return n * (c.s.portrait ? 190 : 160) * c.s.u + (n - 1) * 20 * c.s.u;
+    },
+    draw(c, box, start) {
+      const { ctx, s, p, pal, t, d } = c;
+      const u = s.u;
+      const items = arr<{ icon?: string; title?: string; body?: string; time?: string }>(p.items).slice(0, 4);
+      const n = Math.max(1, items.length);
+      const ch = (s.portrait ? 190 : 160) * u;
+      const gap = 20 * u;
+      const every = Math.min(1.0, Math.max(0.45, (d - start - 0.8) / n));
+      const ats = items.map((_, i) => start + i * every);
+      items.forEach((it, i) => {
+        const q = sp(t - ats[i], 0.7, 0.12);
+        if (q <= 0.001) return;
+        // newest on top: each later arrival pushes this one down a slot
+        const slot = springSteps(t, 0, ats.slice(i + 1).map((a, k) => ({ at: a, to: k + 1 })), 0.6 * M().settle);
+        const y = box.y + slot * (ch + gap);
+        const k = Math.pow(0.97, slot);
+        ctx.save();
+        ctx.globalAlpha *= clamp(q * 1.5) * (1 - 0.12 * slot);
+        ctx.translate(0, (1 - q) * -ch * 0.8);
+        scaleAbout(ctx, box.x + box.w / 2, y + ch / 2, k);
+        D.card(ctx, box.x, y, box.w, ch, 34 * u, pal.card, u, { elevation: 1, border: pal.cardBorder });
+        const tile = ch * 0.5;
+        const tx = box.x + ch * 0.25;
+        const ty = y + (ch - tile) / 2;
+        D.rrect(ctx, tx, ty, tile, tile, tile * 0.26);
+        ctx.fillStyle = D.paint(ctx, pal.accent, tx, ty, tx + tile, ty + tile);
+        ctx.fill();
+        if (!it.icon || it.icon === "taxstreem") D.mark(ctx, tx + tile * 0.2, ty + tile * 0.24, tile * 0.52, pal.onAccent);
+        else D.icon(ctx, it.icon, tx + tile * 0.2, ty + tile * 0.2, tile * 0.6, pal.onAccent, 1, 2);
+        const x2 = tx + tile + 28 * u;
+        const ts = (s.portrait ? 36 : 32) * u;
+        const w2 = box.x + box.w - x2 - 30 * u;
+        D.text(ctx, str(it.time, "now"), box.x + box.w - 30 * u, y + ch * 0.36, ts * 0.78, 400, pal.cardMuted, "right");
+        const tl = D.layoutText(ctx, str(it.title), x2, y + ch * 0.2, { maxWidth: w2 - 90 * u, size: ts, weight: 600, maxLines: 1 });
+        D.drawLayout(ctx, tl, pal.cardFg);
+        if (it.body) {
+          const bl = D.layoutText(ctx, str(it.body), x2, y + ch * 0.2 + ts * 1.25, { maxWidth: w2, size: ts * 0.86, weight: 400, maxLines: 2, lineHeight: 1.3 });
+          D.drawLayout(ctx, bl, pal.cardMuted);
+        }
+        ctx.restore();
+      });
+    },
+  },
+  picker: {
+    height: (c) => {
+      const n = Math.min(7, Math.max(2, arr(c.p.items).length));
+      return n * (c.s.portrait ? 116 : 96) * c.s.u + 40 * c.s.u + (c.p.result && !c.s.landscape ? 200 * c.s.u : 0);
+    },
+    draw(c, box, start) {
+      const { ctx, s, p, pal, t, d } = c;
+      const u = s.u;
+      const items = arr<{ label?: string; icon?: string } | string>(p.items).slice(0, 7).map((x) => (typeof x === "string" ? { label: x } : x));
+      const n = Math.max(1, items.length);
+      const rh = (s.portrait ? 116 : 96) * u;
+      const side = s.landscape && !!p.result;
+      const pw = side ? box.w * 0.52 : box.w;
+      const ph = n * rh + 40 * u;
+      const sel = clamp(Math.round(+p.selected || 0), 0, n - 1);
+      const q = sp(t - start, 0.8);
+      if (q <= 0.001) return;
+      ctx.save();
+      ctx.globalAlpha *= clamp(q * 1.4);
+      ctx.translate(0, (1 - q) * 40 * u);
+      D.card(ctx, box.x, box.y, pw, ph, 36 * u, pal.card, u, { elevation: 1.1, border: pal.cardBorder });
+      // the highlight walks down the list and lands on the selection
+      const landAt = Math.min(start + 0.5 + sel * 0.28, d * 0.6);
+      const hop = sel > 0 ? (landAt - start - 0.5) / sel : 0;
+      const pos = springSteps(t, 0, Array.from({ length: sel }, (_, i) => ({ at: start + 0.5 + i * hop, to: i + 1 })), 0.35 * M().settle);
+      const hy = box.y + 20 * u + pos * rh;
+      const landed = clamp((t - landAt - 0.15) / 0.3);
+      D.rrect(ctx, box.x + 14 * u, hy + 6 * u, pw - 28 * u, rh - 12 * u, 24 * u * D.activeLook().radius);
+      ctx.fillStyle = landed > 0.5 ? D.paint(ctx, pal.accent, box.x, 0, box.x + pw, 0) : pal.tint;
+      ctx.fill();
+      const ts = (s.portrait ? 36 : 32) * u;
+      items.forEach((it, i) => {
+        const y = box.y + 20 * u + i * rh;
+        const isSel = i === sel && landed > 0.5;
+        const col = isSel ? pal.onAccent : Math.abs(pos - i) < 0.5 ? pal.cardFg : pal.cardMuted;
+        let x = box.x + 44 * u;
+        if (it.icon) {
+          D.icon(ctx, it.icon, x, y + rh / 2 - ts * 0.55, ts * 1.1, col, 1, 2);
+          x += ts * 1.7;
+        }
+        D.text(ctx, str(it.label), x, y + rh / 2 + ts * 0.36, ts, isSel ? 600 : 500, col);
+        if (isSel) D.icon(ctx, "check", box.x + pw - 44 * u - ts, y + rh / 2 - ts * 0.5, ts, pal.onAccent, landed, 2.6);
+      });
+      ctx.restore();
+      if (p.result) {
+        const rp = sp(t - landAt - 0.3, 0.8, 0.15);
+        const rs = (s.portrait ? 84 : 80) * u;
+        const rx = side ? box.x + pw + 80 * u : s.W / 2;
+        const ry = side ? box.y + ph / 2 : box.y + ph + 110 * u;
+        withFade(ctx, rp, 24 * u, () => {
+          const l = D.layoutText(ctx, str(p.result), rx, ry - rs * 0.6, { maxWidth: side ? box.w - pw - 80 * u : box.w, size: rs, weight: 500, maxLines: 2, align: side ? "left" : "center" });
+          D.drawLayout(ctx, l, pal.fg);
+        });
+      }
+    },
+  },
+  toggles: {
+    height: (c) => Math.min(6, Math.max(1, arr(c.p.items).length)) * (c.s.portrait ? 150 : 124) * c.s.u + 30 * c.s.u,
+    draw(c, box, start) {
+      const { ctx, s, p, pal, t } = c;
+      const u = s.u;
+      const items = arr<{ label?: string; sub?: string; on?: boolean; icon?: string } | string>(p.items).slice(0, 6).map((x) => (typeof x === "string" ? { label: x } : x));
+      const rh = (s.portrait ? 150 : 124) * u;
+      const q = sp(t - start, 0.8);
+      if (q <= 0.001) return;
+      ctx.save();
+      ctx.globalAlpha *= clamp(q * 1.4);
+      ctx.translate(0, (1 - q) * 40 * u);
+      D.card(ctx, box.x, box.y, box.w, box.h, 36 * u, pal.card, u, { elevation: 1.1, border: pal.cardBorder });
+      const ts = (s.portrait ? 36 : 32) * u;
+      items.forEach((it, i) => {
+        const y = box.y + 15 * u + i * rh;
+        if (i > 0) {
+          ctx.fillStyle = pal.faint;
+          ctx.fillRect(box.x + 40 * u, y, box.w - 80 * u, Math.max(1, 1.5 * u));
+        }
+        let x = box.x + 44 * u;
+        if (it.icon) {
+          D.icon(ctx, it.icon, x, y + rh / 2 - ts * 0.55, ts * 1.1, D.solid(pal.accent), 1, 2);
+          x += ts * 1.8;
+        }
+        D.text(ctx, str(it.label), x, y + rh / 2 + (it.sub ? -ts * 0.2 : ts * 0.36), ts, 600, pal.cardFg, "left", -0.01, "head");
+        if (it.sub) D.text(ctx, str(it.sub), x, y + rh / 2 + ts * 1.05, ts * 0.78, 400, pal.cardMuted);
+        // switch
+        const sh = rh * 0.36;
+        const sw = sh * 1.75;
+        const sx = box.x + box.w - 44 * u - sw;
+        const sy = y + (rh - sh) / 2;
+        const on = it.on === false ? 0 : sp(t - (start + 0.6 + i * 0.45 * M().stagger), 0.45, 0.1);
+        D.rrect(ctx, sx, sy, sw, sh, sh / 2);
+        ctx.fillStyle = pal.subtle;
+        ctx.fill();
+        if (on > 0.01) {
+          ctx.save();
+          ctx.globalAlpha *= clamp(on);
+          D.rrect(ctx, sx, sy, sw, sh, sh / 2);
+          ctx.fillStyle = D.paint(ctx, pal.accent, sx, sy, sx + sw, sy);
+          ctx.fill();
+          ctx.restore();
+        }
+        const kx = sx + sh / 2 + (sw - sh) * clamp(on, 0, 1.08);
+        ctx.save();
+        ctx.shadowColor = "rgba(0,0,0,0.18)";
+        ctx.shadowBlur = 6 * u;
+        ctx.shadowOffsetY = 2 * u;
+        ctx.beginPath();
+        ctx.arc(kx, sy + sh / 2, sh * 0.4, 0, Math.PI * 2);
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fill();
+        ctx.restore();
+      });
+      ctx.restore();
+    },
+  },
+  payment: {
+    height: (c) => (c.s.portrait ? 300 : 260) * c.s.u + Math.min(5, arr(c.p.rows).length) * (c.s.portrait ? 78 : 64) * c.s.u + (c.p.status ? 140 * c.s.u : 40 * c.s.u),
+    draw(c, box, start) {
+      const { ctx, s, p, pal, t } = c;
+      const u = s.u;
+      const rows = arr<{ label?: string; value?: string }>(p.rows).slice(0, 5);
+      const q = sp(t - start, 0.85);
+      if (q <= 0.001) return;
+      ctx.save();
+      ctx.globalAlpha *= clamp(q * 1.4);
+      ctx.translate(0, (1 - q) * 50 * u);
+      D.card(ctx, box.x, box.y, box.w, box.h, 40 * u, pal.card, u, { elevation: 1.3, border: pal.cardBorder });
+      const cx = box.x + box.w / 2;
+      const cr = (s.portrait ? 58 : 50) * u;
+      const cy = box.y + 50 * u + cr;
+      const cp = ease.outCubic((t - start - 0.25) / 0.6);
+      ctx.beginPath();
+      ctx.arc(cx, cy, cr, 0, Math.PI * 2);
+      ctx.fillStyle = pal.tint;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(cx, cy, cr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * cp);
+      ctx.strokeStyle = D.solid(pal.accent);
+      ctx.lineWidth = 6 * u;
+      ctx.stroke();
+      D.icon(ctx, p.icon ?? "check", cx - cr * 0.55, cy - cr * 0.55, cr * 1.1, D.solid(pal.accent), ease.outCubic((t - start - 0.6) / 0.4), 2.6);
+      let y = cy + cr + 56 * u;
+      const ts = (s.portrait ? 36 : 32) * u;
+      D.text(ctx, str(p.title, "Payment successful"), cx, y, ts, 500, pal.cardMuted, "center");
+      y += 24 * u;
+      if (p.amount !== undefined) {
+        const as = (s.portrait ? 96 : 84) * u;
+        const k = ease.outExpo((t - start - 0.4) / 1.4);
+        const v = (Number(p.amount) || 0) * k;
+        const txt = formatNumber(v, { prefix: str(p.prefix), suffix: str(p.suffix), decimals: Number(p.decimals) || 0 });
+        D.text(ctx, txt, cx, y + as * 0.92, as, 600, pal.cardFg, "center", -0.03, "display");
+        y += as * 1.25;
+      }
+      rows.forEach((r, i) => {
+        const rp = sp(t - (start + 0.9 + i * 0.12 * M().stagger), 0.6);
+        const rh = (s.portrait ? 78 : 64) * u;
+        withFade(ctx, rp, 10 * u, () => {
+          ctx.fillStyle = pal.faint;
+          ctx.fillRect(box.x + 50 * u, y, box.w - 100 * u, Math.max(1, 1.5 * u));
+          D.text(ctx, str(r.label), box.x + 50 * u, y + rh * 0.62, ts * 0.86, 400, pal.cardMuted);
+          D.text(ctx, str(r.value), box.x + box.w - 50 * u, y + rh * 0.62, ts * 0.86, 600, pal.cardFg, "right");
+        });
+        y += rh;
+      });
+      if (p.status) {
+        const pp = sp(t - (start + 1.2 + rows.length * 0.12), 0.6, 0.2);
+        const ph = 72 * u;
+        withFade(ctx, pp, 0, () => {
+          ctx.save();
+          const pw = D.measure(ctx, str(p.status), ph * 0.4, 600) + ph * 1.5;
+          scaleAbout(ctx, cx, y + 40 * u + ph / 2, 0.85 + 0.15 * pp);
+          D.rrect(ctx, cx - pw / 2, y + 40 * u, pw, ph, ph / 2);
+          ctx.fillStyle = D.paint(ctx, pal.accent, cx - pw / 2, 0, cx + pw / 2, 0);
+          ctx.fill();
+          D.icon(ctx, "badge-check", cx - pw / 2 + ph * 0.3, y + 40 * u + ph * 0.25, ph * 0.5, pal.onAccent, 1, 2.2);
+          D.text(ctx, str(p.status), cx - pw / 2 + ph * 0.95, y + 40 * u + ph / 2 + ph * 0.14, ph * 0.4, 600, pal.onAccent);
+          ctx.restore();
+        });
+      }
+      ctx.restore();
+    },
+  },
+  chat: {
+    height: (c) => c.s.safe.h * (c.p.title ? 0.62 : 0.8),
+    draw(c, box, start) {
+      const { ctx, s, p, pal, t, d } = c;
+      const u = s.u;
+      const msgs = arr<{ from?: string; text?: string }>(p.messages).slice(0, 6);
+      const n = Math.max(1, msgs.length);
+      const ts = (s.portrait ? 36 : 32) * u;
+      const maxW = box.w * 0.78;
+      const every = Math.max(0.7, (d - start - 0.8) / n);
+      const ats: number[] = [];
+      let at = start;
+      msgs.forEach((m) => {
+        if (m.from !== "user") at += 0.55; // typing dots first
+        ats.push(at);
+        at += every * 0.8;
+      });
+      const lays = msgs.map((m) => D.layoutText(ctx, str(m.text), 0, 0, { maxWidth: maxW - 56 * u, size: ts, weight: 400, maxLines: 6, lineHeight: 1.32 }));
+      const hs = lays.map((l) => l.height + 44 * u);
+      const tops: number[] = [];
+      let acc = 0;
+      hs.forEach((h) => {
+        tops.push(acc);
+        acc += h + 20 * u;
+      });
+      const scroll = springSteps(t, 0, msgs.map((_, i) => ({ at: ats[i], to: Math.max(0, tops[i] + hs[i] - box.h) })), 0.6 * M().settle);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(box.x - 40 * u, box.y - 10 * u, box.w + 80 * u, box.h + 20 * u);
+      ctx.clip();
+      msgs.forEach((m, i) => {
+        const user = m.from === "user";
+        const y = box.y + tops[i] - scroll;
+        // typing indicator before the bot replies
+        if (!user && t >= ats[i] - 0.55 && t < ats[i]) {
+          const bw = 120 * u;
+          D.card(ctx, box.x, y, bw, 70 * u, 35 * u, pal.card, u, { elevation: 0.5, border: pal.cardBorder, keepRadius: true });
+          for (let k = 0; k < 3; k++) {
+            const bounce = Math.max(0, Math.sin((t * 8 - k * 0.8) % (Math.PI * 2)));
+            ctx.beginPath();
+            ctx.arc(box.x + 34 * u + k * 26 * u, y + 35 * u - bounce * 6 * u, 7 * u, 0, Math.PI * 2);
+            ctx.fillStyle = pal.cardMuted;
+            ctx.fill();
+          }
+          return;
+        }
+        const q = sp(t - ats[i], 0.6, 0.18);
+        if (q <= 0.001) return;
+        const l = lays[i];
+        const bw = l.width + 56 * u;
+        const bx = user ? box.x + box.w - bw : box.x;
+        ctx.save();
+        ctx.globalAlpha *= clamp(q * 1.5);
+        scaleAbout(ctx, user ? bx + bw : bx, y + hs[i], 0.7 + 0.3 * q);
+        const fill = user ? D.solid(pal.accent) : pal.card;
+        D.card(ctx, bx, y, bw, hs[i], Math.min(36 * u, hs[i] / 2), fill, u, { elevation: user ? 0.6 : 0.5, border: user ? undefined : pal.cardBorder, keepRadius: true });
+        const l2 = D.layoutText(ctx, str(m.text), bx + 28 * u, y + 22 * u, { maxWidth: maxW - 56 * u, size: l.size, minSize: l.size, weight: 400, maxLines: 99, lineHeight: 1.32 });
+        D.drawLayout(ctx, l2, user ? pal.onAccent : pal.cardFg);
+        ctx.restore();
+      });
+      ctx.restore();
+    },
+  },
+};
+
 const custom: Template = (c) => {
   const code = str(c.p.code);
   if (!code) {
@@ -1231,5 +2149,11 @@ export const TEMPLATES: Record<string, Template> = {
   quote,
   cta,
   logo: logoSting,
+  media,
+  split,
+  collage,
+  icons,
+  kinetic,
+  ui,
   custom,
 };

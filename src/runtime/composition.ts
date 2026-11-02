@@ -138,7 +138,16 @@ export class Composition {
             }
             return null;
           },
-          mediaDuration: (id) => (id && env.video?.has(id) ? env.video.duration(id) : 0),
+          mediaInfo: (id) => {
+            if (!id) return null;
+            const img = env.images.get(id);
+            if (img) return { width: img.width, height: img.height, duration: 0, video: false };
+            if (env.video?.has(id)) {
+              const sz = env.video.size(id);
+              return { width: sz?.width ?? 1920, height: sz?.height ?? 1080, duration: env.video.duration(id), video: true };
+            }
+            return null;
+          },
           warn: (m) => this.warn(m),
         });
       } catch (e) {

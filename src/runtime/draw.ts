@@ -768,8 +768,8 @@ let arrowPath: Path2D | null = null;
 let handPath: Path2D | null = null;
 
 /** Pointer cursor in the look's style (macOS arrow, or a hand for product-demo looks). */
-export function cursor(ctx: Ctx, x: number, y: number, size: number, alphaV: number) {
-  const hand = A.look.cursor === "hand";
+export function cursor(ctx: Ctx, x: number, y: number, size: number, alphaV: number, style?: "arrow" | "hand") {
+  const hand = (style ?? A.look.cursor) === "hand";
   arrowPath ??= new Path2D(ARROW);
   handPath ??= new Path2D(HAND);
   const k = size / 24;
@@ -1173,4 +1173,135 @@ export function image(ctx: Ctx, img: CanvasImageSource & { width: number; height
   }
   ctx.drawImage(img, x + (w - dw) * clamp(focusX), y + (h - dh) * clamp(focusY), dw, dh);
   ctx.restore();
+}
+
+// ---------------------------------------------------------------- 3D tilt
+
+const scratchCanvases = new Map<string, OffscreenCanvas>();
+/** A reusable offscreen layer the size of the stage (slot lets nested effects use separate layers). */
+export function scratch(W: number, H: number, slot = 0): OffscreenCanvas {
+  const key = `${W}x${H}:${slot}`;
+  let c = scratchCanvases.get(key);
+  if (!c) scratchCanvases.set(key, (c = new OffscreenCanvas(W, H)));
+  return c;
+}
+
+export interface Tilt {
+  /** Lean back (+) or forward, radians. */
+  rx: number;
+  /** Turn left (+) or right, radians. */
+  ry: number;
+  /** In-plane rotation, radians. */
+  rz?: number;
+}
+
+/**
+ * Draws a group rotated in 3D about the centre of `box`: the group is drawn flat into a layer,
+ * then mapped onto the screen through a perspective projection, a small triangle mesh at a time.
+ */
+export function tilted(ctx: Ctx, s: Stage, box: { x: number; y: number; w: number; h: number }, tilt: Tilt, draw: (g: OffscreenCanvasRenderingContext2D) => void, slot = 0) {
+  if (Math.abs(tilt.rx) < 0.002 && Math.abs(tilt.ry) < 0.002 && Math.abs(tilt.rz ?? 0) < 0.002) {
+    draw(ctx as OffscreenCanvasRenderingContext2D);
+    return;
+  }
+  const layer = scratch(s.W, s.H, 10 + slot);
+  const g = layer.getContext("2d")!;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalAlpha = 1;
+  g.filter = "none";
+  g.clearRect(0, 0, s.W, s.H);
+  draw(g);
+  // region to map: the box plus a margin for shadows, labels and the cursor
+  const m = 90 * s.u;
+  const sx = Math.max(0, box.x - m);
+  const sy = Math.max(0, box.y - m);
+  const sw = Math.min(s.W, box.x + box.w + m) - sx;
+  const sh = Math.min(s.H, box.y + box.h + m) - sy;
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  const dist = Math.max(s.W, s.H) * 1.7;
+  const cX = Math.cos(tilt.rx), sX = Math.sin(tilt.rx);
+  const cY = Math.cos(tilt.ry), sY = Math.sin(tilt.ry);
+  const rz = tilt.rz ?? 0;
+  const cZ = Math.cos(rz), sZ = Math.sin(rz);
+  const proj = (x: number, y: number): [number, number] => {
+    let X = x - cx;
+    let Y = y - cy;
+    // in-plane, then turn (Y axis), then lean (X axis)
+    const X1 = X * cZ - Y * sZ;
+    const Y1 = X * sZ + Y * cZ;
+    const X2 = X1 * cY;
+    const Z2 = -X1 * sY;
+    const Y3 = Y1 * cX - Z2 * sX;
+    const Z3 = Y1 * sX + Z2 * cX;
+    const k = dist / (dist + Z3);
+    X = X2 * k;
+    Y = Y3 * k;
+    return [cx + X, cy + Y];
+  };
+  const n = 12;
+  const pts: [number, number][][] = [];
+  for (let j = 0; j <= n; j++) {
+    const row: [number, number][] = [];
+    for (let i = 0; i <= n; i++) row.push(proj(sx + (sw * i) / n, sy + (sh * j) / n));
+    pts.push(row);
+  }
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const x0 = sx + (sw * i) / n;
+      const x1 = sx + (sw * (i + 1)) / n;
+      const y0 = sy + (sh * j) / n;
+      const y1 = sy + (sh * (j + 1)) / n;
+      tri(ctx, layer, [x0, y0], [x1, y0], [x0, y1], pts[j][i], pts[j][i + 1], pts[j + 1][i], [x0, y0, x1 - x0, y1 - y0]);
+      tri(ctx, layer, [x1, y0], [x1, y1], [x0, y1], pts[j][i + 1], pts[j + 1][i + 1], pts[j + 1][i], [x0, y0, x1 - x0, y1 - y0]);
+    }
+  }
+}
+
+function tri(ctx: Ctx, img: OffscreenCanvas, s0: number[], s1: number[], s2: number[], d0: number[], d1: number[], d2: number[], cell: number[]) {
+  // grow the destination triangle a little so neighbouring triangles overlap (no hairline seams)
+  const gx = (d0[0] + d1[0] + d2[0]) / 3;
+  const gy = (d0[1] + d1[1] + d2[1]) / 3;
+  const grow = (p: number[]) => {
+    const dx = p[0] - gx;
+    const dy = p[1] - gy;
+    const l = Math.hypot(dx, dy) || 1;
+    return [p[0] + (dx / l) * 0.9, p[1] + (dy / l) * 0.9];
+  };
+  const [a0, a1, a2] = [grow(d0), grow(d1), grow(d2)];
+  const denom = s0[0] * (s1[1] - s2[1]) + s1[0] * (s2[1] - s0[1]) + s2[0] * (s0[1] - s1[1]);
+  if (Math.abs(denom) < 1e-9) return;
+  const a = (d0[0] * (s1[1] - s2[1]) + d1[0] * (s2[1] - s0[1]) + d2[0] * (s0[1] - s1[1])) / denom;
+  const b = (d0[1] * (s1[1] - s2[1]) + d1[1] * (s2[1] - s0[1]) + d2[1] * (s0[1] - s1[1])) / denom;
+  const c = (d0[0] * (s2[0] - s1[0]) + d1[0] * (s0[0] - s2[0]) + d2[0] * (s1[0] - s0[0])) / denom;
+  const d = (d0[1] * (s2[0] - s1[0]) + d1[1] * (s0[0] - s2[0]) + d2[1] * (s1[0] - s0[0])) / denom;
+  const e = (d0[0] * (s1[0] * s2[1] - s2[0] * s1[1]) + d1[0] * (s2[0] * s0[1] - s0[0] * s2[1]) + d2[0] * (s0[0] * s1[1] - s1[0] * s0[1])) / denom;
+  const f = (d0[1] * (s1[0] * s2[1] - s2[0] * s1[1]) + d1[1] * (s2[0] * s0[1] - s0[0] * s2[1]) + d2[1] * (s0[0] * s1[1] - s1[0] * s0[1])) / denom;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(a0[0], a0[1]);
+  ctx.lineTo(a1[0], a1[1]);
+  ctx.lineTo(a2[0], a2[1]);
+  ctx.closePath();
+  ctx.clip();
+  ctx.transform(a, b, c, d, e, f);
+  // draw only the cell (plus a pixel of bleed) from the layer
+  const bx = Math.max(0, cell[0] - 1);
+  const by = Math.max(0, cell[1] - 1);
+  const bw = Math.min(img.width - bx, cell[2] + 2);
+  const bh = Math.min(img.height - by, cell[3] + 2);
+  if (bw > 0 && bh > 0) ctx.drawImage(img, bx, by, bw, bh, bx, by, bw, bh);
+  ctx.restore();
+}
+
+/** A tilt that settles from a stronger entry angle to a gentle resting one. */
+export function tiltFor(mode: string | boolean | undefined, p: number, t: number, flat = 0): Tilt {
+  const m = mode === true ? "left" : mode || "none";
+  if (m === "none") return { rx: 0, ry: 0 };
+  const k = 1 - clamp(flat);
+  const drift = Math.sin(t * 0.6) * 0.015;
+  const ease = (a: number, b: number) => (a + (b - a) * clamp(p)) * k;
+  if (m === "back") return { rx: ease(0.55, 0.24) + drift, ry: 0, rz: 0 };
+  const dir = m === "right" ? -1 : 1;
+  return { rx: ease(0.4, 0.14) + drift * 0.5, ry: dir * (ease(0.62, 0.3) + drift), rz: dir * ease(-0.06, -0.025) };
 }
