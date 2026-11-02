@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { bitmapFor, removeAsset, uploadAudio, uploadImage, type AssetRow } from "../lib/assets";
 import { decodeUrl, mix, Playback } from "../lib/audio";
+import { DOC_ACCEPT, isDocument, uploadDocument } from "../lib/documents";
 import { assetBlob, ensurePreview, uploadSample, uploadVideo } from "../lib/media";
+import { deleteProject } from "../lib/projects";
 import { Renderer, type Loaded } from "../lib/renderer";
 import { api, check, fileUrl, sb, upload } from "../lib/supabase";
 import { clipSounds, mediaIds } from "../runtime/audioplan";
@@ -313,10 +315,11 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
       if (!isVideo) throw new Error("A sample should be a video file (MP4, MOV or WebM).");
       return uploadSample(projectId, f, setStage);
     }
+    if (!kind && isDocument(f)) return uploadDocument(projectId, f);
     if (isVideo) return uploadVideo(projectId, f, setStage);
     if (f.type.startsWith("image/")) return uploadImage(projectId, f);
     if (f.type.startsWith("audio/") || AUDIO_FILE.test(f.name)) return uploadAudio(projectId, f, kind === "voice" || kind === "audio" ? kind : /voice|vo\b|narration/i.test(f.name) ? "voice" : "audio");
-    throw new Error("Use images, video clips or audio files.");
+    throw new Error("Use images, video clips, audio, or Word, PDF and text documents.");
   };
 
   const onFiles = async (files: File[], kind?: "audio" | "voice" | "sample") => {
@@ -419,6 +422,17 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
 
   const busyJob = job && (job.status === "queued" || job.status === "running") ? job : null;
   const canDelete = me.role === "admin" || me.role === "producer";
+  const removeVideo = async () => {
+    if (!project || !confirm(`Delete "${project.title}"?\n\nThis removes the video with its script, every version, the chat, renders and uploaded files. It can't be undone.`)) return;
+    try {
+      setStage("Deleting the video");
+      await deleteProject(project.id);
+      location.hash = "#/";
+    } catch (e) {
+      setErr((e as Error).message);
+      setStage(null);
+    }
+  };
   const hasVideo = !!project?.spec?.scenes?.length;
 
   if (!project) return <div className="center muted">{err ?? "Loading…"}</div>;
@@ -562,6 +576,11 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
                   <div className="small muted">{new Date(v.created_at).toLocaleString()}</div>
                 </button>
               ))}
+              {canDelete && (
+                <div className="pad">
+                  <button className="link small danger" onClick={removeVideo}>Delete this video</button>
+                </div>
+              )}
             </div>
           )}
           {tab === "renders" && <RendersPanel renders={renders} />}
@@ -650,6 +669,12 @@ function AssetsPanel(p: {
     const src = m.source === "elevenlabs" ? " · AI image" : "";
     if (a.kind === "image") return `${m.width ?? "?"}×${m.height ?? "?"}${src}`;
     if (a.kind === "video") return `Clip · ${Number(m.duration ?? 0).toFixed(1)}s${m.hasAudio ? " · sound" : ""}${src}`;
+    if (a.kind === "document") {
+      const what = m.format === "pdf" ? "PDF" : m.format === "word" ? "Word document" : "Text";
+      const bytes = Number(m.size ?? 0);
+      const size = m.words ? `${Number(m.words).toLocaleString()} words` : bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+      return `${what} · ${size}${m.truncated ? " · first 120,000 characters" : ""} · for Claude to read`;
+    }
     if (a.kind === "reference") return `Sample · ${Number(m.duration ?? 0).toFixed(1)}s · ${(m.shots ?? []).length} shots${m.bpm ? ` · ${Math.round(m.bpm)} BPM` : ""}`;
     return `${Number(m.duration ?? 0).toFixed(1)}s${m.bpm ? ` · ${Math.round(m.bpm)} BPM` : ""}${a.kind === "voice" ? (m.words?.length ? " · timed" : " · no timings") : ""}`;
   };
@@ -664,8 +689,9 @@ function AssetsPanel(p: {
         {p.onStock && <button className="btn small" onClick={p.onStock}>Pexels</button>}
         <button className="btn small" onClick={p.onImage}>AI image</button>
         <button className="btn small" onClick={() => pick("video/*,.mov,.mp4,.webm,.m4v", "sample")} title="A motion design for Claude to replicate or learn from">+ Sample</button>
+        <button className="btn small" onClick={() => pick(DOC_ACCEPT)} title="A brief, notes or an article for Claude to work from: Word, PDF or text">+ Document</button>
       </div>
-      {p.assets.length === 0 && <p className="muted small pad">Upload product screenshots, footage or screen recordings, or make a voiceover. Search Envato for clips, photos and music, or generate an image. Add a sample video and ask Claude to replicate or tweak it; for a YouTube example, paste the link in the chat.</p>}
+      {p.assets.length === 0 && <p className="muted small pad">Upload product screenshots, footage or screen recordings, or make a voiceover. Add a Word, PDF or text document (a brief, notes, an article) and Claude works from it. Search Envato for clips, photos and music, or generate an image. Add a sample video and ask Claude to replicate or tweak it; for a YouTube example, paste the link in the chat.</p>}
       {p.assets.map((a) => (
         <div key={a.id} className="asset">
           {a.kind === "image" || a.kind === "video" || a.kind === "reference" ? (
@@ -675,7 +701,7 @@ function AssetsPanel(p: {
               {a.kind === "reference" && <span className="badge">Sample</span>}
             </div>
           ) : (
-            <div className="audio-ico">{a.kind === "voice" ? "VO" : "♪"}</div>
+            <div className={`audio-ico ${a.kind === "document" ? "doc" : ""}`}>{a.kind === "voice" ? "VO" : a.kind === "document" ? (a.meta?.format === "pdf" ? "PDF" : "DOC") : "♪"}</div>
           )}
           <div className="asset-meta">
             <div className="small ellipsis" title={a.name}>{a.name}</div>
@@ -684,6 +710,7 @@ function AssetsPanel(p: {
               {used.has(a.id) ? " · in use" : ""}
             </div>
             {(a.kind === "audio" || a.kind === "voice") && urls[a.id] && <audio controls preload="none" src={urls[a.id]} />}
+            {a.kind === "document" && urls[a.id] && <a className="small" href={urls[a.id]} target="_blank" rel="noreferrer">Open file</a>}
             {a.meta?.pageUrl && (a.meta?.source === "pexels" || a.meta?.source === "envato") && (
               <a className="small muted" href={a.meta.pageUrl} target="_blank" rel="noreferrer">{a.meta.source === "envato" ? "Envato" : "Pexels"} · {a.meta.credit}</a>
             )}

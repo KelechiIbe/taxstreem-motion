@@ -18,7 +18,7 @@ export const config: Config = { background: true };
 interface Asset {
   id: string;
   project_id: string | null;
-  kind: "image" | "audio" | "voice" | "video" | "reference";
+  kind: "image" | "audio" | "voice" | "video" | "reference" | "document";
   name: string;
   path: string;
   mime: string;
@@ -80,7 +80,8 @@ export default async (req: Request) => {
       const history = (msgs ?? []).reverse();
       const attachIds: string[] = job.input?.attachments ?? [];
       const latestText = String(job.input?.text ?? "");
-      const visuals = await visualBlocks(db, assets, project, attachIds, latestText);
+      const docs = await documentBlocks(db, assets, project.id);
+      const visuals = [...docs, ...(await visualBlocks(db, assets, project, attachIds, latestText))];
       const script: Script | null = project.script ?? null;
       const pexelsOn = await getKey(db, "pexels").then(() => true, () => false);
       const waiting = (script?.scenes ?? []).flatMap((sc) => (sc.media ?? []).filter((m) => /^envato:/i.test(m)).map((m) => `${sc.id}: ${m}`));
@@ -208,6 +209,38 @@ export default async (req: Request) => {
 // ------------------------------------------------------------------ what Claude sees
 
 /** Images Claude looks at this turn: attachments, media in use, clip posters, sample frame sheets and YouTube thumbnails. */
+/** The project's attached documents (briefs, notes, articles) as source material. Text first, then PDFs. */
+async function documentBlocks(db: SupabaseClient, assets: Asset[], projectId: string): Promise<Block[]> {
+  const docs = assets.filter((a) => a.kind === "document" && a.project_id === projectId).slice(-6);
+  const out: Block[] = [];
+  let budget = 150_000; // characters of document text per request
+  let pdfBytes = 0;
+  for (const d of docs) {
+    try {
+      if (d.meta?.format === "pdf") {
+        const buf = await download(db, d.path);
+        if (pdfBytes + buf.length > 24 * 1024 * 1024) {
+          out.push({ type: "text", text: `Document "${d.name}" (PDF) is too large to include alongside the others. Work from the rest and say so.` });
+          continue;
+        }
+        pdfBytes += buf.length;
+        out.push({ type: "text", text: `Document "${d.name}" attached by the team (PDF). Use it as source material:` });
+        out.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: buf.toString("base64") }, title: d.name.slice(0, 200) });
+      } else if (d.meta?.textPath && budget > 2000) {
+        let text = (await download(db, d.meta.textPath)).toString("utf8");
+        const cut = text.length > budget;
+        text = text.slice(0, budget);
+        budget -= text.length;
+        out.push({ type: "text", text: `<document name="${d.name.replace(/"/g, "'")}">\n${text}${cut || d.meta?.truncated ? "\n[…the rest of this document was cut for length]" : ""}\n</document>` });
+      }
+    } catch (e) {
+      console.warn("document skipped", d.name, (e as Error).message);
+    }
+  }
+  if (out.length) out.unshift({ type: "text", text: "Documents the team attached (source material only, never media for the video):" });
+  return out;
+}
+
 async function visualBlocks(db: SupabaseClient, assets: Asset[], project: any, attachIds: string[], text: string): Promise<Block[]> {
   const inSpec = project.spec ? mediaIds(project.spec as VideoSpec) : new Set<string>();
   for (const sc of (project.script?.scenes ?? []) as ScriptScene[]) for (const m of sc.media ?? []) inSpec.add(m);
@@ -328,6 +361,7 @@ function cleanScript(raw: any, format: Format): Script {
   return {
     title: String(raw?.title ?? "Untitled video").slice(0, 120),
     idea: String(raw?.idea ?? "").slice(0, 2000),
+    context: String(raw?.context ?? "").slice(0, 6000),
     audience: raw?.audience ? String(raw.audience).slice(0, 300) : undefined,
     platform: raw?.platform ? String(raw.platform).slice(0, 120) : undefined,
     format: formats.includes(raw?.format) ? raw.format : format,
@@ -367,6 +401,7 @@ function describeAssets(assets: Asset[]): string {
       const scope = a.project_id ? "" : " [team library]";
       if (a.kind === "image") return `- "${a.id}" · image · ${a.name} · ${m.width ?? "?"}×${m.height ?? "?"}${m.source ? ` · from ${m.source}` : ""}${scope}`;
       if (a.kind === "video") return `- "${a.id}" · video clip · ${a.name} · ${m.width ?? "?"}×${m.height ?? "?"} · ${Number(m.duration ?? 0).toFixed(1)}s${m.hasAudio ? " · has sound" : ""}${m.source ? ` · from ${m.source}` : ""}${scope}`;
+      if (a.kind === "document") return `- "${a.id}" · DOCUMENT (source material to read, never media) · ${a.name}${m.words ? ` · ${m.words} words` : m.format === "pdf" ? " · PDF" : ""} · its text comes with script and build requests`;
       if (a.kind === "reference") {
         const shots: number[] = m.shots ?? [];
         const avg = shots.length ? shots.reduce((x, y) => x + y, 0) / shots.length : 0;

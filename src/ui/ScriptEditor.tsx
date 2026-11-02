@@ -47,7 +47,7 @@ export function ScriptEditor(p: {
     return (
       <div className="script-empty">
         <h3>Start with the idea</h3>
-        <p className="muted">Tell Claude the core idea and the context in the chat: what the video should say, who it's for, where it'll be posted, how long, and the style you want. Attach screenshots, footage or a sample video to replicate. Claude writes an editable script here; once you approve it, the video is built from it.</p>
+        <p className="muted">Tell Claude the core idea and the context in the chat: what the video should say, who it's for, where it'll be posted, how long, and the style you want. Attach a Word or PDF brief, screenshots, footage or a sample video to replicate. Claude writes an editable script here; once you approve it, the video is built from it.</p>
         {p.busy && <p className="small"><span className="spinner" /> Writing…</p>}
       </div>
     );
@@ -85,6 +85,10 @@ export function ScriptEditor(p: {
       <label className="field">
         <span>Core idea</span>
         <textarea rows={2} value={draft.idea} onChange={(e) => change({ ...draft, idea: e.target.value })} />
+      </label>
+      <label className="field">
+        <span>Context</span>
+        <textarea rows={4} value={draft.context ?? ""} placeholder="Who it's for, where it'll run, the key message, facts to use, anything to avoid" onChange={(e) => change({ ...draft, context: e.target.value })} />
       </label>
       <div className="script-meta">
         <label className="field">
