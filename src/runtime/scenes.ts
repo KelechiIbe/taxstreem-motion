@@ -83,7 +83,7 @@ function scaleAbout(ctx: Ctx, cx: number, cy: number, k: number) {
 
 /** Headline colours per theme: on blue the brand uses two-tone white instead of a colour. */
 function headColors(c: SceneCtx, hasHighlight: boolean) {
-  if (c.theme === "blue") return { color: c.pal.fg, hl: c.pal.fg, dimAlpha: hasHighlight ? 0.6 : undefined };
+  if (c.theme === "blue") return { color: c.pal.fg, hl: c.pal.fg, dimAlpha: hasHighlight ? 0.72 : undefined };
   return { color: c.pal.fg, hl: c.pal.highlight, dimAlpha: undefined };
 }
 
