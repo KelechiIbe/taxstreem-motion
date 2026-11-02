@@ -3,9 +3,10 @@ import { api, sb } from "../lib/supabase";
 import { TopBar, type Me } from "./App";
 
 type Status = Record<string, { set: boolean; last4: string; source: string }>;
+type SaveResult = { status: Status; message: string; ok: boolean };
 
 const KEYS = [
-  { name: "anthropic", label: "Anthropic (Claude)", help: "Designs, edits and reviews the videos. Create one at console.anthropic.com → API keys." },
+  { name: "anthropic", label: "Anthropic (Claude)", help: "Writes the scripts, then designs, edits and reviews the videos. Create a key at platform.claude.com/settings/keys. A key made for one workspace works on its own; a key that works across workspaces also needs the workspace ID below." },
   { name: "elevenlabs", label: "ElevenLabs", help: "Voiceovers with word timings, transcribing uploaded recordings, and AI images (the key needs the Image & Video permission)." },
   { name: "pexels", label: "Pexels", help: "Free stock photos and clips in the studio, and stock Claude can fetch for a scene. Get a free key at pexels.com/api." },
 ];
@@ -29,7 +30,10 @@ export function Settings({ me }: { me: Me }) {
           </p>
           {err && <p className="error">{err}</p>}
           {KEYS.map((k) => (
-            <KeyRow key={k.name} name={k.name} label={k.label} help={k.help} st={status?.[k.name]} admin={me.role === "admin"} onSaved={setStatus} />
+            <div key={k.name} className="stack">
+              <KeyRow name={k.name} label={k.label} help={k.help} st={status?.[k.name]} admin={me.role === "admin"} onSaved={setStatus} />
+              {k.name === "anthropic" && <WorkspaceRow st={status?.anthropic_workspace} admin={me.role === "admin"} onSaved={setStatus} />}
+            </div>
           ))}
         </section>
         <section className="panel stack" style={{ marginTop: 16 }}>
@@ -55,9 +59,10 @@ function KeyRow({ name, label, help, st, admin, onSaved }: { name: string; label
     setBusy(true);
     setMsg(null);
     try {
-      onSaved(await api<Status>("motion-keys", { action: "save", name, value }));
+      const r = await api<SaveResult>("motion-keys", { action: "save", name, value });
+      onSaved(r.status);
       setValue("");
-      setMsg("Saved.");
+      setMsg(r.message);
     } catch (e) {
       setMsg((e as Error).message);
     }
@@ -79,7 +84,7 @@ function KeyRow({ name, label, help, st, admin, onSaved }: { name: string; label
         <strong>{label}</strong>
         <div className="muted small">{help}</div>
         <div className="small" style={{ marginTop: 4 }}>
-          {st ? (st.set ? <span className="ok">Set · ends in {st.last4}{st.source === "environment" ? " · from Netlify" : ""}</span> : <span className="warn">Not set</span>) : "…"}
+          {st ? (st.set ? <span className="ok">Set · ends in {st.last4} · {st.source === "environment" ? "from Netlify's environment variables" : "saved here"}</span> : <span className="warn">Not set</span>) : "…"}
         </div>
       </div>
       {admin && (
@@ -87,6 +92,42 @@ function KeyRow({ name, label, help, st, admin, onSaved }: { name: string; label
           <input type="password" placeholder={st?.set ? "Replace key" : "Paste key"} value={value} onChange={(e) => setValue(e.target.value)} style={{ minWidth: 220 }} />
           <button className="btn primary small" disabled={busy || !value.trim()} onClick={save}>Save</button>
           <button className="btn small" disabled={busy || !st?.set} onClick={test}>Test</button>
+        </div>
+      )}
+      {msg && <div className="small">{msg}</div>}
+    </div>
+  );
+}
+
+function WorkspaceRow({ st, admin, onSaved }: { st?: { set: boolean; last4: string }; admin: boolean; onSaved: (s: Status) => void }) {
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const save = async (v: string) => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api<SaveResult>("motion-keys", { action: "save", name: "anthropic_workspace", value: v });
+      onSaved(r.status);
+      setValue("");
+      setMsg(r.message);
+    } catch (e) {
+      setMsg((e as Error).message);
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="keyrow sub">
+      <div>
+        <strong>Anthropic workspace ID</strong>
+        <div className="muted small">Only for a key that works across workspaces. Find it in the ID column at platform.claude.com/settings/workspaces; it starts with wrkspc_.</div>
+        <div className="small" style={{ marginTop: 4 }}>{st ? (st.set ? <span className="ok">{st.last4}</span> : <span className="muted">Not set</span>) : "…"}</div>
+      </div>
+      {admin && (
+        <div className="row wrap">
+          <input placeholder="wrkspc_…" value={value} onChange={(e) => setValue(e.target.value)} style={{ minWidth: 220 }} />
+          <button className="btn primary small" disabled={busy || !value.trim()} onClick={() => save(value)}>Save</button>
+          <button className="btn small" disabled={busy || !st?.set} onClick={() => save("")}>Remove</button>
         </div>
       )}
       {msg && <div className="small">{msg}</div>}

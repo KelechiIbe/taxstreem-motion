@@ -1,7 +1,7 @@
 // Records the team's message and a job, then hands the slow Claude work to motion-run.
 import { body, handle, HttpError, json } from "./_lib/http";
 import { requireUser } from "./_lib/db";
-import { getKey } from "./_lib/keys";
+import { getClaude, getKey } from "./_lib/keys";
 
 type Kind = "generate" | "review" | "script" | "import" | "imagegen";
 
@@ -33,7 +33,9 @@ export default handle(async (req) => {
   if (!b.projectId) throw new HttpError(400, "Missing project");
   if (!KINDS.includes(b.kind)) throw new HttpError(400, "Unknown task");
   // fail fast when the key the task needs is missing
-  await getKey(me.db, b.kind === "import" ? "pexels" : b.kind === "imagegen" ? "elevenlabs" : "anthropic");
+  if (b.kind === "import") await getKey(me.db, "pexels");
+  else if (b.kind === "imagegen") await getKey(me.db, "elevenlabs");
+  else await getClaude(me.db);
   if (b.kind === "imagegen" && !String(b.prompt ?? "").trim()) throw new HttpError(400, "Describe the image first.");
   if (b.kind === "import" && !b.item) throw new HttpError(400, "Pick something to import.");
   const { data: project } = await me.db.from("motion_projects").select("id").eq("id", b.projectId).maybeSingle();
