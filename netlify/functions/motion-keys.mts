@@ -18,7 +18,11 @@ export default handle(async (req) => {
       b.name === "anthropic"
         ? await fetch("https://api.anthropic.com/v1/models?limit=1", { headers: { "x-api-key": key, "anthropic-version": "2023-06-01" } })
         : await fetch("https://api.elevenlabs.io/v1/user", { headers: { "xi-api-key": key } });
-    if (!res.ok) throw new HttpError(400, `The key was rejected (${res.status}).`);
+    if (!res.ok) {
+      const out: any = await res.json().catch(() => ({}));
+      const why = out?.error?.message || out?.detail?.message || out?.detail || res.statusText;
+      throw new HttpError(400, `${b.name === "anthropic" ? "Anthropic" : "ElevenLabs"} refused the key (${res.status}): ${typeof why === "string" ? why : JSON.stringify(why)}`);
+    }
     return json({ message: "The key works." });
   }
   await saveKey(me.db, b.name, b.value ?? "");

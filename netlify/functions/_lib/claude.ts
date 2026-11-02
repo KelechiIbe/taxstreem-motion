@@ -34,7 +34,7 @@ export async function callTool<T>(o: { key: string; system: string; messages: Ms
   const out: any = await res.json().catch(() => ({}));
   if (!res.ok) {
     const msg = out?.error?.message || res.statusText;
-    if (res.status === 401) throw new Error("Claude rejected the API key. An admin can update it in Settings.");
+    if (res.status === 401 || res.status === 403) throw new Error(`Anthropic refused the API key (${res.status}): ${msg}. An admin can update it in Settings.`);
     if (res.status === 429 || res.status === 529) throw new Error(`Claude is busy right now (${res.status}). Try again in a minute.`);
     throw new Error(`Claude: ${msg}`);
   }
