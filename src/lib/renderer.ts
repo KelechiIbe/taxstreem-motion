@@ -32,6 +32,7 @@ export class Renderer {
         return;
       }
       if (m.type === "warnings") return this.onWarnings(m.warnings);
+      if (m.type === "seeked") return this.seeked();
       const p = this.pending.get(m.id);
       if (!p) {
         if (m.type === "error") console.error("renderer:", m.message);
@@ -78,8 +79,27 @@ export class Renderer {
     });
   }
 
+  /**
+   * Seeks coalesce: one frame is in flight at a time and only the newest request waits behind it,
+   * so slow frames never build a backlog that delays loads and exports.
+   */
   seek(t: number) {
+    if (this.seeking) {
+      this.nextSeek = t;
+      return;
+    }
+    this.seeking = true;
     this.worker.postMessage({ type: "seek", t });
+  }
+  private seeking = false;
+  private nextSeek: number | null = null;
+  private seeked() {
+    this.seeking = false;
+    if (this.nextSeek !== null) {
+      const t = this.nextSeek;
+      this.nextSeek = null;
+      this.seek(t);
+    }
   }
 
   private call<T>(msg: Record<string, unknown>, transfer: Transferable[] = [], onProgress?: (p: number) => void): Promise<T> {
