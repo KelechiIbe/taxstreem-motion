@@ -99,6 +99,20 @@ export interface ScriptScene {
   seconds: number;
   /** Asset ids (or stock:/generate: requests) the scene should use. */
   media?: string[];
+  /** How the scene moves: entrances, camera, what changes, the exit. The team's words win. */
+  motion?: string;
+  /** Areas the team marked on a picked screenshot or photo, in camera order. */
+  focus?: FocusMark[];
+}
+
+/** A box the team drew on an image: where the camera should go, in 0..1 fractions of the image. */
+export interface FocusMark {
+  asset: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  label?: string;
 }
 
 /** The editable script a video is built from. */

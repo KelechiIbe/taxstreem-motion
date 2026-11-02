@@ -15,6 +15,7 @@ import { Chat, type MessageRow } from "./Chat";
 import { EnvatoModal, ImageModal, StockModal, StyleModal, type EnvatoItem, type EnvatoType, type StockItem } from "./MediaModals";
 import { ExportModal, JsonModal, VoiceModal } from "./Modals";
 import { Player } from "./Player";
+import { SceneDirector, type Direction } from "./SceneDirector";
 import { ScriptEditor } from "./ScriptEditor";
 
 export interface ProjectRow {
@@ -89,6 +90,7 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
   const [mixed, setMixed] = useState<AudioBuffer | null>(null);
   const [tab, setTab] = useState<"assets" | "versions" | "renders">("assets");
   const [modal, setModal] = useState<null | "voice" | "export" | "json" | "style" | "stock" | "image" | "envato">(null);
+  const [director, setDirector] = useState<{ sceneId: string; index: number; mode: "script" | "video" } | null>(null);
   const [envatoAsk, setEnvatoAsk] = useState<{ query?: string; type?: EnvatoType; sceneId?: string; request?: string } | null>(null);
   const [pexelsOn, setPexelsOn] = useState(false);
   const [voiceText, setVoiceText] = useState<{ text: string; direction?: string } | null>(null);
@@ -380,6 +382,33 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
     setProject((p) => (p ? { ...p, script: s } : p));
   };
 
+  /** Saves the team's direction for one scene; in the video it also asks Claude to rebuild just that scene. */
+  const applyDirection = async (dir: { sceneId: string; index: number; mode: "script" | "video" }, d: Direction) => {
+    if (!project) return;
+    const script = project.script;
+    if (script?.scenes.some((x) => x.id === dir.sceneId)) {
+      const scenes = script.scenes.map((x) => (x.id === dir.sceneId ? { ...x, media: d.media, motion: d.motion || undefined, focus: d.focus.length ? d.focus : undefined } : x));
+      // In the script this is an edit like any other (it needs approving again); in the video it records what was asked.
+      await saveScript({ ...script, scenes, approvedAt: dir.mode === "script" ? undefined : script.approvedAt });
+    }
+    if (dir.mode === "video") {
+      const name = (id: string) => assets.find((a) => a.id === id)?.name ?? id;
+      const pics = d.media.filter((m) => assets.some((a) => a.id === m));
+      const lines = [
+        `Rework scene ${dir.index + 1} (id ${dir.sceneId}) only. Keep every other scene exactly as it is.`,
+        pics.length ? `Pictures, in this order: ${pics.map((id) => `"${id}" (${name(id)})`).join(", ")}.` : "No pictures in this scene: keep it to words and graphics.",
+        ...(d.focus.length
+          ? [`Camera marks, in the order to visit them (fractions of the picture): ${d.focus.map((f, i) => `${i + 1}) on "${f.asset}" x ${f.x}, y ${f.y}, w ${f.w}, h ${f.h}${f.label ? `, label "${f.label}"` : ""}`).join("; ")}.`]
+          : []),
+        `How it should move: ${d.motion || "your call, make it lively and clear"}`,
+      ];
+      await startJob({ kind: "generate", text: lines.join("\n"), attachments: pics });
+      setDirector(null);
+      return;
+    }
+    setDirector(null);
+  };
+
   const approve = async (s: Script) => {
     if (!project) return;
     try {
@@ -490,6 +519,7 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
             <ScriptEditor
               script={project.script}
               assets={assets}
+              onDirect={(sceneId) => setDirector({ sceneId, index: Math.max(0, project.script?.scenes.findIndex((x) => x.id === sceneId) ?? 0), mode: "script" })}
               onFindEnvato={(sceneId, request) => {
                 const m = request.match(/^envato:(?:(video|clip|photo|image|music|sfx|sound):)?(.*)$/i);
                 const t = (m?.[1] ?? "video").toLowerCase();
@@ -522,7 +552,7 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
                   <button className="btn small" onClick={() => switchMode("script")}>Open the script</button>
                 </div>
               )}
-              <Player renderer={renderer} duration={loaded?.duration ?? 0} timings={loaded?.timings ?? []} format={format} playback={playback} busy={stage} tRef={tRef} />
+              <Player renderer={renderer} duration={loaded?.duration ?? 0} timings={loaded?.timings ?? []} format={format} playback={playback} busy={stage} directBusy={!!busyJob} tRef={tRef} onDirect={viewing ? undefined : (sceneId, index) => setDirector({ sceneId, index, mode: "video" })} />
               {warnings.length > 0 && (
                 <ul className="warnings">
                   {warnings.slice(0, 6).map((w) => (
@@ -598,6 +628,30 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
           )}
         </aside>
       </div>
+      {director && project && (() => {
+        const sc = project.script?.scenes.find((x) => x.id === director.sceneId);
+        const specScene = spec?.scenes.find((x) => x.id === director.sceneId);
+        const fromSpec = specScene && spec ? [...mediaIds({ ...spec, scenes: [specScene] })] : [];
+        const p: any = specScene?.props ?? {};
+        const words = sc?.onScreen || [p.title, p.headline, p.label, ...(Array.isArray(p.lines) ? p.lines.map((l: any) => (typeof l === "string" ? l : l?.text)) : [])].filter(Boolean).join(" / ");
+        return (
+          <SceneDirector
+            title={`scene ${director.index + 1}`}
+            words={words}
+            assets={assets}
+            mode={director.mode}
+            initial={{ media: sc?.media?.length ? sc.media : fromSpec, motion: sc?.motion ?? "", focus: sc?.focus ?? [] }}
+            onUpload={async (f) => {
+              const row = await uploadOne(f);
+              setAssets((a) => [...a, row]);
+              setStage(null);
+              return row;
+            }}
+            onClose={() => setDirector(null)}
+            onApply={(d) => applyDirection(director, d)}
+          />
+        );
+      })()}
       {modal === "voice" && (
         <VoiceModal
           projectId={projectId}
