@@ -1682,10 +1682,12 @@ const UI_KINDS: Record<string, UIKind> = {
       const label = str(p.label, "Get started");
       const after = p.after ? str(p.after) : "";
       const clickAt = Number.isFinite(+p.at) && p.at !== undefined ? +p.at : Math.max(start + 1.3, d * 0.5);
-      const size = h * 0.36;
       const iconName = p.icon ?? (label.toLowerCase().includes("play") ? "play" : "");
-      const tw = Math.max(D.measure(ctx, label, size, 600, -0.01, "head"), after ? D.measure(ctx, after, size, 600, -0.01, "head") + size * 1.3 : 0);
-      const w = tw + h * 1.1 + (iconName ? size * 1.5 : 0);
+      const widthAt = (sz: number) => Math.max(D.measure(ctx, label, sz, 600, -0.01, "head"), after ? D.measure(ctx, after, sz, 600, -0.01, "head") + sz * 1.3 : 0) + h * 1.1 + (iconName ? sz * 1.5 : 0);
+      let size = h * 0.36;
+      // long labels shrink to keep the button inside the safe area
+      for (let k = 0; k < 12 && widthAt(size) > s.safe.w; k++) size *= 0.92;
+      const w = widthAt(size);
       const x = s.W / 2 - w / 2;
       const y = box.y;
       const q = sp(t - start, 0.8, 0.15);
@@ -2050,8 +2052,8 @@ const UI_KINDS: Record<string, UIKind> = {
       const u = s.u;
       const msgs = arr<{ from?: string; text?: string }>(p.messages).slice(0, 6);
       const n = Math.max(1, msgs.length);
-      const ts = (s.portrait ? 36 : 32) * u;
-      const maxW = box.w * 0.78;
+      const ts = (s.portrait ? 44 : s.landscape ? 36 : 38) * u;
+      const maxW = box.w * 0.8;
       const every = Math.max(0.7, (d - start - 0.8) / n);
       const ats: number[] = [];
       let at = start;
@@ -2068,7 +2070,9 @@ const UI_KINDS: Record<string, UIKind> = {
         tops.push(acc);
         acc += h + 20 * u;
       });
-      const scroll = springSteps(t, 0, msgs.map((_, i) => ({ at: ats[i], to: Math.max(0, tops[i] + hs[i] - box.h) })), 0.6 * M().settle);
+      // short conversations sit in the middle of the space; long ones scroll up as messages arrive
+      const lead = Math.max(0, (box.h - acc) / 2);
+      const scroll = springSteps(t, -lead, msgs.map((_, i) => ({ at: ats[i], to: Math.max(-lead, tops[i] + hs[i] - box.h) })), 0.6 * M().settle);
       ctx.save();
       ctx.beginPath();
       ctx.rect(box.x - 40 * u, box.y - 10 * u, box.w + 80 * u, box.h + 20 * u);
@@ -2078,12 +2082,12 @@ const UI_KINDS: Record<string, UIKind> = {
         const y = box.y + tops[i] - scroll;
         // typing indicator before the bot replies
         if (!user && t >= ats[i] - 0.55 && t < ats[i]) {
-          const bw = 120 * u;
-          D.card(ctx, box.x, y, bw, 70 * u, 35 * u, pal.card, u, { elevation: 0.5, border: pal.cardBorder, keepRadius: true });
+          const bw = 140 * u;
+          D.card(ctx, box.x, y, bw, 80 * u, 40 * u, pal.card, u, { elevation: 0.5, border: pal.cardBorder, keepRadius: true });
           for (let k = 0; k < 3; k++) {
             const bounce = Math.max(0, Math.sin((t * 8 - k * 0.8) % (Math.PI * 2)));
             ctx.beginPath();
-            ctx.arc(box.x + 34 * u + k * 26 * u, y + 35 * u - bounce * 6 * u, 7 * u, 0, Math.PI * 2);
+            ctx.arc(box.x + 40 * u + k * 30 * u, y + 40 * u - bounce * 7 * u, 8 * u, 0, Math.PI * 2);
             ctx.fillStyle = pal.cardMuted;
             ctx.fill();
           }

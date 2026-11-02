@@ -2,9 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { decrypt, encrypt } from "./crypto";
 import { env, HttpError } from "./http";
 
-export type KeyName = "anthropic" | "elevenlabs";
-const ENV: Record<KeyName, string> = { anthropic: "ANTHROPIC_API_KEY", elevenlabs: "ELEVENLABS_API_KEY" };
-const LABEL: Record<KeyName, string> = { anthropic: "Anthropic (Claude)", elevenlabs: "ElevenLabs" };
+export type KeyName = "anthropic" | "elevenlabs" | "pexels";
+const ENV: Record<KeyName, string> = { anthropic: "ANTHROPIC_API_KEY", elevenlabs: "ELEVENLABS_API_KEY", pexels: "PEXELS_API_KEY" };
+const LABEL: Record<KeyName, string> = { anthropic: "Anthropic (Claude)", elevenlabs: "ElevenLabs", pexels: "Pexels" };
 
 export async function getKey(db: SupabaseClient, name: KeyName): Promise<string> {
   const fromEnv = env(ENV[name]);

@@ -52,7 +52,12 @@ export function checkSpec(input: unknown, ctx: { imageIds: Set<string>; audioIds
     const transition = (TRANSITIONS as readonly string[]).includes(String(s.transition)) ? s.transition : i === 0 ? "cut" : undefined;
     const theme = THEMES.includes(s.theme as Theme) ? s.theme : undefined;
     const props = s.props && typeof s.props === "object" ? { ...s.props } : {};
-    if (type === "screenshot") checkMedia(id, props.video ?? props.image, "props.image (or props.video)");
+    if (type === "screenshot") {
+      checkMedia(id, props.video ?? props.image, "props.image (or props.video)");
+      const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+      if (Array.isArray(props.focus)) props.focus = props.focus.filter((f: any) => f && typeof f === "object").map((f: any) => ({ ...f, zoom: num(f.zoom), at: num(f.at) ?? 0 }));
+      if (Array.isArray(props.cursor)) props.cursor = props.cursor.filter((q: any) => q && typeof q === "object" && num(q.x) !== undefined && num(q.y) !== undefined);
+    }
     if (type === "media" || type === "split") checkMedia(id, props.media ?? props.video ?? props.image, "props.media");
     if (type === "kinetic" && props.media) checkMedia(id, props.media, "props.media");
     if (type === "collage") {
