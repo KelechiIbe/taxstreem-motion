@@ -82,8 +82,12 @@ export default async (req: Request) => {
       const latestText = String(job.input?.text ?? "");
       const visuals = await visualBlocks(db, assets, project, attachIds, latestText);
       const script: Script | null = project.script ?? null;
+      const pexelsOn = await getKey(db, "pexels").then(() => true, () => false);
+      const waiting = (script?.scenes ?? []).flatMap((sc) => (sc.media ?? []).filter((m) => /^envato:/i.test(m)).map((m) => `${sc.id}: ${m}`));
       const context = [
         `Project format: ${project.format}. Title: ${project.title}.`,
+        `Pexels stock is ${pexelsOn ? "on: stock: requests in a spec are fetched automatically" : "off: don't use stock: requests; ask for envato: files in the script instead"}.`,
+        ...(waiting.length && !isScript ? [`Envato files the script asks for that haven't been added yet (build those scenes without them): ${waiting.join("; ")}.`] : []),
         `Assets you can use:\n${describeAssets(assets) || "(none uploaded yet)"}`,
         isScript
           ? script

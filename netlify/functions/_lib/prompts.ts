@@ -60,7 +60,9 @@ const STORY = `# Story and pacing
 
 const MEDIA = `# Photos, clips and stock
 - Use uploaded images and video clips by asset id in media, split, collage, screenshot (video: for a screen recording) and kinetic (media behind the words). Clips play from props.start (seconds into the file) for the scene's length; set end/loop/speed when the useful part is short. Clip sound is off unless you set volume.
-- When the story needs real-world footage or photos the team hasn't uploaded and the brief allows it, you may request stock in place of an asset id: "stock:photo:<search words>" or "stock:video:<search words>" (Pexels; 2–5 plain English words describing the shot, e.g. "stock:video:nigerian market traders", "stock:photo:woman laptop office lagos"). The server finds and imports the best match before rendering. Use at most 5 stock requests per answer, and prefer the team's own media when it fits.
+- The team's stock library is Envato Elements. Envato files can't be fetched automatically: a person downloads each one on Envato and licenses it to the project, then adds it to the studio. So in a SCRIPT, when a scene needs footage, photos or music the team hasn't uploaded, put a request in that scene's media: "envato:video:<search words>", "envato:photo:<search words>", "envato:music:<mood, genre, tempo>" or "envato:sfx:<sound>" (2–6 plain English words, e.g. "envato:video:nigerian market traders", "envato:photo:woman laptop office lagos", "envato:music:upbeat corporate 110 bpm"). The studio turns each into a "Find on Envato" button. Mention in your reply which files the team needs to fetch.
+- In a VIDEO spec, use only assets that are uploaded. If the approved script still has an envato: request that hasn't been replaced by a file, build that scene without the missing media (kinetic, ui, icons or a title work well) and say which Envato files are still missing; never put envato: in a spec.
+- Automatic stock ("stock:photo:<words>" or "stock:video:<words>" in a spec, fetched from Pexels) works only when the context says Pexels stock is on. Use at most 5 per answer, and prefer the team's own media.
 - For an illustration or a scene no photo can show, you may request an AI image: "generate:<a precise prompt describing subject, setting, light, style>". At most 2 per answer. Never generate pictures of real, named people, logos, documents with readable text, or anything that could be mistaken for a real customer.
 - People and places should look Nigerian when the context is Nigerian.`;
 
@@ -133,7 +135,7 @@ The team shares a core idea and context (and sometimes a sample to replicate, no
 - Plan for the platform: 15–35s for Reels/TikTok, 30–60s for LinkedIn/YouTube, unless they give a length. Scene seconds must add up to roughly the target length.
 - Voiceover lines are spoken English for a Nigerian audience: short sentences, natural rhythm, about 2.5 words per second of scene time. If the team wants no voiceover, leave vo empty and let on-screen text carry the story.
 - On-screen text: headlines up to ~10 words in Title Case, supporting lines in sentence case. Never the same words as the voiceover line; they work together.
-- Visual: name the template idea and the media plainly ("Kinetic type: Meet → Martina", "Screenshot of the dashboard, zoom to VAT payable", "Notifications arriving: VAT due, return filed", "Stock video: market traders in Lagos"). List uploaded asset ids, or stock:/generate: requests, in media.
+- Visual: name the template idea and the media plainly ("Kinetic type: Meet → Martina", "Screenshot of the dashboard, zoom to VAT payable", "Notifications arriving: VAT due, return filed", "Envato clip: market traders in Lagos"). List uploaded asset ids, envato: requests or generate: requests in media.
 - Your reply is 1–3 short plain sentences. No headings, no bullet lists, no exclamation marks.
 
 ${BRAND}

@@ -25,6 +25,10 @@ export function checkSpec(input: unknown, ctx: { imageIds: Set<string>; audioIds
       if (required) errors.push(`Scene "${id}" needs ${what} set to an uploaded image or video id.`);
       return;
     }
+    if (/^envato:/i.test(String(v))) {
+      errors.push(`Scene "${id}" asks for an Envato file (${v}) that hasn't been added to the studio yet. Build this scene without it or with an uploaded asset, and tell the team which Envato file to add.`);
+      return;
+    }
     if (visual.size && !visual.has(String(v))) errors.push(`Scene "${id}" points at "${v}" for ${what}, which isn't uploaded. Uploaded media: ${[...visual].join(", ") || "none"}.`);
     else if (!visual.size) errors.push(`Scene "${id}" needs media for ${what}, but nothing is uploaded yet. Use a template without media, or ask the user to upload or pick stock.`);
   };

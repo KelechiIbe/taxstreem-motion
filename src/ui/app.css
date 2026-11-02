@@ -249,3 +249,15 @@ textarea.code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fon
 .thumb-wrap img { width: 64px; height: 48px; }
 .thumb-wrap .badge { position: absolute; left: 4px; bottom: 4px; background: rgba(10, 10, 10, 0.72); color: #fff; font-size: 10px; border-radius: 5px; padding: 0 5px; }
 @media (max-width: 1100px) { .script-meta { grid-template-columns: 1fr 1fr; } .scene-grid { grid-template-columns: 1fr; } }
+.stock.envato { cursor: default; display: flex; flex-direction: column; aspect-ratio: auto; background: #fff; border: 1px solid var(--line); }
+.stock.envato:hover { outline: none; border-color: #cfd3da; }
+.stock.envato img { height: 130px; }
+.stock-grid.audio .stock.envato img, .audio-cover { height: 70px; }
+.audio-cover { display: grid; place-items: center; font-size: 26px; color: var(--primary); background: var(--blue-50); }
+.envato-meta { display: flex; flex-direction: column; gap: 3px; padding: 8px; font-size: 12px; text-align: left; }
+.envato-meta .row { gap: 6px; margin-top: 4px; }
+.envato-meta .btn { padding: 4px 8px; font-size: 12px; }
+.stock-grid:has(.envato) { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip.envato-ask { background: #fff4e0; max-width: min(100%, 360px); }
+.chip.envato-ask .link { width: auto; height: auto; border-radius: 0; background: none; color: var(--warn); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; padding: 0; min-width: 0; }
