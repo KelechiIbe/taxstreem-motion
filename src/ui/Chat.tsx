@@ -23,7 +23,7 @@ const SCRIPT_STARTERS = [
   "Use this YouTube video as the reference for style and pacing: ",
 ];
 
-const KIND_LABEL: Record<string, string> = { image: "Image", video: "Clip", reference: "Sample", voice: "Voiceover", audio: "Music" };
+const KIND_LABEL: Record<string, string> = { image: "Image", video: "Clip", reference: "Sample", voice: "Voiceover", audio: "Music", document: "Document" };
 
 export function Chat(p: {
   mode: "script" | "video";
@@ -63,7 +63,7 @@ export function Chat(p: {
   const pick = () => {
     const i = document.createElement("input");
     i.type = "file";
-    i.accept = "image/*,audio/*,video/*,.mov,.mp4,.webm,.m4v";
+    i.accept = "image/*,audio/*,video/*,.mov,.mp4,.webm,.m4v,.docx,.doc,.pdf,.txt,.md";
     i.multiple = true;
     i.onchange = () => p.onFiles([...(i.files ?? [])]);
     i.click();
@@ -89,7 +89,7 @@ export function Chat(p: {
             <h3>{p.mode === "script" ? "What's the idea?" : "What are we making?"}</h3>
             <p className="muted small">
               {p.mode === "script"
-                ? "Share the core idea and the context: what it should say, who it's for, where it'll be posted, how long and the style. Attach screenshots, footage, a voiceover or a sample video to replicate, or paste a YouTube link. Claude writes an editable script; approve it and the video is built from it."
+                ? "Share the core idea and the context: what it should say, who it's for, where it'll be posted, how long and the style. Attach a Word or PDF brief, screenshots, footage, a voiceover or a sample video to replicate, or paste a YouTube link. Claude writes an editable script; approve it and the video is built from it."
                 : "Describe the video: the message, who it's for, where it'll be posted and how long. Drop in product screenshots, footage, a voiceover or a track from Envato. Claude builds a first cut, checks the rendered frames, and you refine it here."}
             </p>
             <div className="stack">
@@ -147,7 +147,7 @@ export function Chat(p: {
         />
         <div className="row between">
           <div className="row">
-            <button className="btn ghost small" onClick={pick} title="Images, clips, samples or audio">Attach</button>
+            <button className="btn ghost small" onClick={pick} title="Images, clips, samples, audio, or Word, PDF and text documents">Attach</button>
             <button className="btn ghost small" onClick={p.onVoice}>Voiceover</button>
           </div>
           <button className="btn primary small" disabled={p.disabled || (!text.trim() && !p.pending.length)} onClick={submit}>

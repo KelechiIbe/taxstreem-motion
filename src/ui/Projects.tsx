@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { deleteProject } from "../lib/projects";
 import { check, fileUrl, sb } from "../lib/supabase";
 import type { Format } from "../runtime/types";
 import { go, TopBar, type Me } from "./App";
@@ -23,6 +24,22 @@ export function Projects({ me }: { me: Me }) {
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [creating, setCreating] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const canDelete = me.role === "admin" || me.role === "producer";
+
+  const remove = async (p: ProjectRow) => {
+    if (!confirm(`Delete "${p.title}"?\n\nThis removes the video with its script, every version, the chat, renders and uploaded files. It can't be undone.`)) return;
+    setErr(null);
+    setDeleting(p.id);
+    try {
+      await deleteProject(p.id);
+      setRows((r) => (r ?? []).filter((x) => x.id !== p.id));
+    } catch (e) {
+      setErr((e as Error).message);
+      if (/was deleted/.test((e as Error).message)) setRows((r) => (r ?? []).filter((x) => x.id !== p.id));
+    }
+    setDeleting(null);
+  };
 
   useEffect(() => {
     sb.from("motion_projects")
@@ -64,11 +81,27 @@ export function Projects({ me }: { me: Me }) {
             {rows.map((p) => (
               <a key={p.id} href={`#/p/${p.id}`} className="card project">
                 <div className={`thumb f${p.format.replace(":", "x")}`}>{thumbs[p.id] ? <img src={thumbs[p.id]} alt="" /> : <span className="muted small">No preview yet</span>}</div>
-                <div className="pad">
-                  <strong>{p.title}</strong>
-                  <div className="muted small">
-                    {p.format} · {p.version ? `version ${p.version}` : "not started"} · {new Date(p.updated_at).toLocaleDateString()}
+                <div className="pad row between top">
+                  <div style={{ minWidth: 0 }}>
+                    <strong>{p.title}</strong>
+                    <div className="muted small">
+                      {p.format} · {p.version ? `version ${p.version}` : "not started"} · {new Date(p.updated_at).toLocaleDateString()}
+                    </div>
                   </div>
+                  {canDelete && (
+                    <button
+                      className="link small danger"
+                      disabled={deleting === p.id}
+                      title="Delete this video"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        remove(p);
+                      }}
+                    >
+                      {deleting === p.id ? "Deleting…" : "Delete"}
+                    </button>
+                  )}
                 </div>
               </a>
             ))}

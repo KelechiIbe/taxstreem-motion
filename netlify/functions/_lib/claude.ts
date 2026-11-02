@@ -6,7 +6,8 @@ export const MODEL = () => env("MOTION_MODEL") || "claude-opus-5-5";
 
 export type Block =
   | { type: "text"; text: string; cache_control?: { type: "ephemeral" } }
-  | { type: "image"; source: { type: "base64"; media_type: string; data: string } };
+  | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
+  | { type: "document"; source: { type: "base64"; media_type: "application/pdf"; data: string }; title?: string };
 
 export interface Msg {
   role: "user" | "assistant";

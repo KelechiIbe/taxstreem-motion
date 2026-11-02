@@ -104,8 +104,10 @@ export interface ScriptScene {
 /** The editable script a video is built from. */
 export interface Script {
   title: string;
-  /** The core idea and context the team gave. */
+  /** The core idea in one or two sentences. */
   idea: string;
+  /** Everything else the team gave: audience, purpose, key message, facts to use, things to avoid, and the gist of attached documents. */
+  context?: string;
   audience?: string;
   platform?: string;
   format: Format;
