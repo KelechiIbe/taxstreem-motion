@@ -1,0 +1,181 @@
+{
+ "version": 1,
+ "title": "Product Story sample",
+ "format": "16:9",
+ "look": "taxstreem",
+ "assets": {
+  "dash": "/templates/dashboard.png",
+  "mobile": "/templates/mobile.png"
+ },
+ "scenes": [
+  {
+   "id": "hook",
+   "type": "sentence",
+   "duration": 3.6,
+   "props": {
+    "mode": "dolly",
+    "sparkles": true,
+    "lines": [
+     {
+      "text": "What if your *VAT*",
+      "at": 0.15
+     },
+     {
+      "text": "filed *itself*?",
+      "at": 1.7
+     }
+    ]
+   }
+  },
+  {
+   "id": "problem",
+   "type": "sentence",
+   "duration": 3,
+   "props": {
+    "mode": "select",
+    "lines": [
+     "Manual. Late. *Risky.*"
+    ]
+   },
+   "transition": "push"
+  },
+  {
+   "id": "meet",
+   "type": "sentence",
+   "duration": 3.2,
+   "props": {
+    "mode": "rotate",
+    "lines": [
+     "Meet your {chip:+ File} *accountant*"
+    ],
+    "words": [
+     "bookkeeper",
+     "tax team"
+    ]
+   },
+   "transition": "star"
+  },
+  {
+   "id": "moment1",
+   "type": "screenshot",
+   "duration": 5.4,
+   "props": {
+    "image": "dash",
+    "kicker": "Dashboard",
+    "title": "Every Tax In One View",
+    "highlight": [
+     "One"
+    ],
+    "open": {
+     "x": 0.64,
+     "y": 0.42,
+     "zoom": 2.4,
+     "at": 0.6
+    },
+    "tilt": "back",
+    "cursor": [
+     {
+      "x": 0.68,
+      "y": 0.25,
+      "at": 2.2,
+      "click": true
+     }
+    ],
+    "focus": [
+     {
+      "x": 0.55,
+      "y": 0.15,
+      "w": 0.27,
+      "h": 0.22,
+      "at": 2.6,
+      "label": "VAT payable"
+     }
+    ],
+    "close": {
+     "x": 0.5,
+     "y": 0.55,
+     "zoom": 1.5
+    }
+   },
+   "transition": "push"
+  },
+  {
+   "id": "moment2",
+   "type": "ui",
+   "duration": 4.4,
+   "props": {
+    "kind": "prompt",
+    "title": "Just Ask",
+    "placeholder": "Ask TaxStreem",
+    "text": "File my November VAT return",
+    "chips": [
+     "PAYE",
+     "WHT",
+     "CIT"
+    ],
+    "tilt": "back"
+   },
+   "transition": "through"
+  },
+  {
+   "id": "turn",
+   "type": "sentence",
+   "duration": 2.8,
+   "props": {
+    "mode": "type",
+    "lines": [
+     "Now it files *itself*."
+    ]
+   },
+   "theme": "dark",
+   "transition": "cut"
+  },
+  {
+   "id": "proof",
+   "type": "stat",
+   "duration": 3.2,
+   "props": {
+    "value": 4812,
+    "label": "VAT returns filed in October",
+    "kicker": "Last month",
+    "badge": "0 late"
+   },
+   "transition": "push"
+  },
+  {
+   "id": "payoff",
+   "type": "sentence",
+   "duration": 3.4,
+   "props": {
+    "mode": "brackets",
+    "squeeze": true,
+    "lines": [
+     {
+      "text": "Every receipt becomes",
+      "at": 0.15
+     },
+     {
+      "text": "*a filed return*",
+      "at": 1.3
+     }
+    ]
+   },
+   "theme": "blue",
+   "transition": "through"
+  },
+  {
+   "id": "close",
+   "type": "cta",
+   "duration": 3,
+   "props": {
+    "headline": "Taxes, On Autopilot",
+    "highlight": [
+     "Autopilot"
+    ],
+    "cta": "Start free",
+    "click": true
+   },
+   "transition": "mark"
+  }
+ ]
+}

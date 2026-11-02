@@ -1,0 +1,196 @@
+{
+ "version": 1,
+ "title": "Fintech Flow sample",
+ "format": "16:9",
+ "look": "glass",
+ "assets": {
+  "dash": "/templates/dashboard.png",
+  "mobile": "/templates/mobile.png"
+ },
+ "scenes": [
+  {
+   "id": "pain",
+   "type": "sentence",
+   "duration": 3.4,
+   "props": {
+    "mode": "type",
+    "lines": [
+     "Still typing *invoices* into Excel?"
+    ]
+   },
+   "theme": "dark"
+  },
+  {
+   "id": "brand",
+   "type": "title",
+   "duration": 2.6,
+   "props": {
+    "logo": true,
+    "headline": "TaxStreem",
+    "sub": "AI-powered tax filing"
+   },
+   "theme": "dark",
+   "transition": "whip"
+  },
+  {
+   "id": "action",
+   "type": "sentence",
+   "duration": 3,
+   "props": {
+    "mode": "scroll",
+    "lines": [
+     {
+      "text": "Snap one receipt",
+      "at": 0.15
+     },
+     {
+      "text": "or *a thousand*",
+      "at": 1.3
+     }
+    ]
+   },
+   "theme": "dark",
+   "transition": "push"
+  },
+  {
+   "id": "read",
+   "type": "doc",
+   "duration": 6,
+   "props": {
+    "before": "It reads",
+    "after": "every invoice",
+    "values": [
+     {
+      "label": "Vendor",
+      "value": "Adaeze Pharmacy"
+     },
+     {
+      "label": "VAT (7.5%)",
+      "value": "₦8,662.50"
+     },
+     {
+      "label": "Total",
+      "value": "₦124,162.50"
+     }
+    ]
+   },
+   "theme": "dark",
+   "transition": "through"
+  },
+  {
+   "id": "turn",
+   "type": "sentence",
+   "duration": 2.6,
+   "props": {
+    "mode": "build",
+    "sparkles": true,
+    "lines": [
+     "Time for a quick {icon:sparkles} *check*"
+    ]
+   },
+   "theme": "light",
+   "transition": "star"
+  },
+  {
+   "id": "review",
+   "type": "screenshot",
+   "duration": 4.6,
+   "props": {
+    "image": "dash",
+    "title": "VAT Worked Out",
+    "highlight": [
+     "Worked"
+    ],
+    "tilt": "back",
+    "open": {
+     "x": 0.66,
+     "y": 0.4,
+     "zoom": 2.2,
+     "at": 0.5
+    },
+    "cursor": [
+     {
+      "x": 0.68,
+      "y": 0.25,
+      "at": 2.0,
+      "click": true
+     }
+    ],
+    "focus": [
+     {
+      "x": 0.55,
+      "y": 0.15,
+      "w": 0.27,
+      "h": 0.22,
+      "at": 2.4,
+      "label": "₦100,379"
+     }
+    ]
+   },
+   "transition": "through"
+  },
+  {
+   "id": "approve",
+   "type": "ui",
+   "duration": 4.4,
+   "props": {
+    "kind": "status",
+    "heading": "Checks",
+    "right": "Status",
+    "title": "Filing With FIRS",
+    "items": [
+     {
+      "text": "Reading 214 invoices",
+      "icon": "file-text"
+     },
+     {
+      "text": "Working out VAT",
+      "icon": "calculator"
+     },
+     {
+      "text": "Submitting the return",
+      "icon": "landmark"
+     }
+    ]
+   },
+   "transition": "push"
+  },
+  {
+   "id": "done",
+   "type": "ui",
+   "duration": 4.8,
+   "props": {
+    "kind": "success",
+    "label": "File return",
+    "busy": "Filing…",
+    "done": "Return filed",
+    "sub": "Receipt saved"
+   },
+   "transition": "through"
+  },
+  {
+   "id": "outro",
+   "type": "sentence",
+   "duration": 2.8,
+   "props": {
+    "mode": "build",
+    "lines": [
+     "Save time. *Avoid errors.*"
+    ]
+   }
+  },
+  {
+   "id": "cta",
+   "type": "cta",
+   "duration": 3,
+   "props": {
+    "headline": "File Your VAT In Minutes",
+    "highlight": [
+     "Minutes"
+    ],
+    "cta": "Start free"
+   },
+   "transition": "mark"
+  }
+ ]
+}

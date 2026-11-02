@@ -1,0 +1,180 @@
+{
+ "version": 1,
+ "title": "Brand Film sample",
+ "format": "16:9",
+ "look": "campaign",
+ "assets": {
+  "p-night": "/templates/img/lagos-night.jpg",
+  "p-market": "/templates/img/market.jpg",
+  "p-naira": "/templates/img/naira.jpg",
+  "p-office": "/templates/img/office.jpg",
+  "p-pharmacy": "/templates/img/pharmacy.jpg",
+  "p-shop": "/templates/img/shop.jpg",
+  "p-skyline": "/templates/img/skyline.jpg",
+  "p-speed": "/templates/img/speed.jpg",
+  "dash": "/templates/dashboard.png",
+  "mobile": "/templates/mobile.png"
+ },
+ "scenes": [
+  {
+   "id": "people",
+   "type": "kinetic",
+   "duration": 3.4,
+   "props": {
+    "media": "p-market",
+    "overlay": "dark",
+    "lines": [
+     "Our people",
+     "don't stay still",
+     {
+      "text": "Neither do we",
+      "highlight": true
+     }
+    ]
+   }
+  },
+  {
+   "id": "turn",
+   "type": "split",
+   "duration": 3.2,
+   "props": {
+    "media": "p-pharmacy",
+    "frame": "card",
+    "kicker": "Meet Ada",
+    "title": "She Runs A Pharmacy",
+    "sub": "TaxStreem files her VAT."
+   },
+   "theme": "light",
+   "transition": "stack"
+  },
+  {
+   "id": "build",
+   "type": "hero",
+   "duration": 4.4,
+   "props": {
+    "device": "phone",
+    "image": "mobile",
+    "title": "Built For How You Work",
+    "chips": [
+     {
+      "text": "VAT filed",
+      "icon": "circle-check"
+     },
+     {
+      "text": "₦8,662 saved",
+      "icon": "piggy-bank"
+     },
+     {
+      "text": "PAYE ready",
+      "icon": "users"
+     }
+    ]
+   },
+   "theme": "light",
+   "transition": "push"
+  },
+  {
+   "id": "name",
+   "type": "sentence",
+   "duration": 2.6,
+   "props": {
+    "mode": "assemble",
+    "lines": [
+     "*TaxStreem*"
+    ]
+   },
+   "theme": "blue",
+   "transition": "stack"
+  },
+  {
+   "id": "lagos",
+   "type": "sentence",
+   "duration": 1.6,
+   "props": {
+    "mode": "build",
+    "lines": [
+     "*Lagos*"
+    ]
+   },
+   "theme": "blue",
+   "transition": "cut"
+  },
+  {
+   "id": "abuja",
+   "type": "sentence",
+   "duration": 1.6,
+   "props": {
+    "mode": "build",
+    "lines": [
+     "*Abuja*"
+    ]
+   },
+   "theme": "light",
+   "transition": "cut"
+  },
+  {
+   "id": "ph",
+   "type": "sentence",
+   "duration": 1.6,
+   "props": {
+    "mode": "build",
+    "lines": [
+     "*Port Harcourt*"
+    ]
+   },
+   "theme": "blue",
+   "transition": "cut"
+  },
+  {
+   "id": "skyline",
+   "type": "media",
+   "duration": 2.4,
+   "props": {
+    "media": "p-skyline",
+    "headline": "Ambition Has No Deadline",
+    "highlight": [
+     "Ambition"
+    ],
+    "position": "bottom"
+   },
+   "transition": "stack"
+  },
+  {
+   "id": "manifesto",
+   "type": "sentence",
+   "duration": 3.6,
+   "props": {
+    "mode": "stack",
+    "lines": [
+     {
+      "text": "File.",
+      "at": 0.2
+     },
+     {
+      "text": "Save.",
+      "at": 1.0
+     },
+     {
+      "text": "*Grow.*",
+      "at": 1.8
+     }
+    ]
+   },
+   "theme": "blue",
+   "transition": "cut"
+  },
+  {
+   "id": "end",
+   "type": "cta",
+   "duration": 3,
+   "props": {
+    "headline": "Taxes For People Going Places",
+    "highlight": [
+     "Places"
+    ],
+    "cta": "Start free"
+   },
+   "transition": "mark"
+  }
+ ]
+}

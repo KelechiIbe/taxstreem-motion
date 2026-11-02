@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { deleteProject } from "../lib/projects";
+import { BLUEPRINT_BY_ID } from "../runtime/blueprints";
+import { TemplateGrid, TemplatePreview } from "./Templates";
 import { check, fileUrl, sb } from "../lib/supabase";
 import type { Format } from "../runtime/types";
 import { go, TopBar, type Me } from "./App";
@@ -116,12 +118,20 @@ export function Projects({ me }: { me: Me }) {
 function NewProject({ onClose }: { onClose: () => void }) {
   const [title, setTitle] = useState("");
   const [format, setFormat] = useState<Format>("9:16");
+  const [formatSet, setFormatSet] = useState(false);
+  const [blueprint, setBlueprint] = useState<string | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const pickTemplate = (id: string | null) => {
+    setBlueprint(id);
+    const b = id ? BLUEPRINT_BY_ID.get(id) : null;
+    if (b && !formatSet) setFormat(b.format);
+  };
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const create = async () => {
     setBusy(true);
     try {
-      const row = check(await sb.from("motion_projects").insert({ title: title.trim() || "Untitled video", format, stage: "script" }).select("id").single()) as { id: string };
+      const row = check(await sb.from("motion_projects").insert({ title: title.trim() || "Untitled video", format, stage: "script", blueprint }).select("id").single()) as { id: string };
       go(`p/${row.id}`);
     } catch (e) {
       setErr((e as Error).message);
@@ -130,7 +140,7 @@ function NewProject({ onClose }: { onClose: () => void }) {
   };
   return (
     <div className="modal-back" onClick={onClose}>
-      <div className="modal stack" onClick={(e) => e.stopPropagation()}>
+      <div className="modal wide stack" onClick={(e) => e.stopPropagation()}>
         <h2 style={{ margin: 0 }}>New video</h2>
         <label className="field">
           <span>Working title</span>
@@ -140,7 +150,7 @@ function NewProject({ onClose }: { onClose: () => void }) {
           <span>Main format</span>
           <div className="formats">
             {FORMATS.map((x) => (
-              <button key={x.f} type="button" className={`format ${format === x.f ? "on" : ""}`} onClick={() => setFormat(x.f)}>
+              <button key={x.f} type="button" className={`format ${format === x.f ? "on" : ""}`} onClick={() => { setFormat(x.f); setFormatSet(true); }}>
                 <span className={`shape f${x.f.replace(":", "x")}`} />
                 <strong>{x.label}</strong>
                 <span className="muted small">{x.hint}</span>
@@ -149,12 +159,29 @@ function NewProject({ onClose }: { onClose: () => void }) {
           </div>
           <span className="muted small">You can export the same video in all three formats later.</span>
         </div>
+        <div className="field">
+          <span>Template</span>
+          <TemplateGrid value={blueprint} onPick={pickTemplate} onPreview={setPreview} compact />
+          <span className="muted small">A template sets the structure, pacing, moves and style, modelled on the launch videos you picked. Press Preview to watch a sample.</span>
+        </div>
         {err && <p className="error">{err}</p>}
         <div className="row end">
           <button className="btn ghost" onClick={onClose}>Cancel</button>
           <button className="btn primary" disabled={busy} onClick={create}>{busy ? "Creating…" : "Create"}</button>
         </div>
       </div>
+      {preview && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <TemplatePreview
+            id={preview}
+            onClose={() => setPreview(null)}
+            onUse={(id) => {
+              pickTemplate(id);
+              setPreview(null);
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

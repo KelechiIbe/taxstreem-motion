@@ -1,0 +1,148 @@
+{
+ "version": 1,
+ "title": "App Launch sample",
+ "format": "9:16",
+ "look": "corporate",
+ "assets": {
+  "dash": "/templates/dashboard.png",
+  "mobile": "/templates/mobile.png"
+ },
+ "scenes": [
+  {
+   "id": "old",
+   "type": "sentence",
+   "duration": 3,
+   "props": {
+    "mode": "type",
+    "lines": [
+     "Taxes have always looked the *same*"
+    ]
+   }
+  },
+  {
+   "id": "icon",
+   "type": "cta",
+   "duration": 2.2,
+   "props": {
+    "headline": "TaxStreem",
+    "cta": "New app"
+   },
+   "transition": "through"
+  },
+  {
+   "id": "hero",
+   "type": "hero",
+   "duration": 4.6,
+   "props": {
+    "device": "phone",
+    "image": "mobile",
+    "title": "Your Taxes, In Your Pocket",
+    "highlight": [
+     "Pocket"
+    ],
+    "chips": [
+     {
+      "text": "VAT filed",
+      "icon": "circle-check"
+     },
+     {
+      "text": "₦100,379 due",
+      "sub": "21 Nov",
+      "icon": "calendar-clock"
+     },
+     {
+      "text": "PAYE ready",
+      "icon": "users"
+     }
+    ]
+   },
+   "transition": "push"
+  },
+  {
+   "id": "wall",
+   "type": "wall",
+   "duration": 3.6,
+   "props": {
+    "layout": "wall",
+    "portraitCards": true,
+    "items": [
+     "mobile",
+     "dash"
+    ],
+    "title": "Every Tax In One App"
+   },
+   "theme": "dark",
+   "transition": "blob"
+  },
+  {
+   "id": "intuitive",
+   "type": "hero",
+   "duration": 2.6,
+   "props": {
+    "device": "phone",
+    "image": "mobile",
+    "title": "Intuitive.",
+    "tilt": "left"
+   },
+   "transition": "push"
+  },
+  {
+   "id": "automatic",
+   "type": "hero",
+   "duration": 2.6,
+   "props": {
+    "device": "phone",
+    "image": "mobile",
+    "title": "Automatic.",
+    "highlight": [
+     "Automatic."
+    ],
+    "tilt": "right",
+    "chips": [
+     {
+      "text": "Return filed",
+      "icon": "circle-check"
+     }
+    ]
+   },
+   "transition": "push"
+  },
+  {
+   "id": "carousel",
+   "type": "wall",
+   "duration": 4,
+   "props": {
+    "layout": "carousel",
+    "portraitCards": true,
+    "items": [
+     {
+      "media": "mobile",
+      "label": "VAT"
+     },
+     {
+      "media": "mobile",
+      "label": "PAYE"
+     },
+     {
+      "media": "mobile",
+      "label": "WHT"
+     }
+    ]
+   },
+   "transition": "through"
+  },
+  {
+   "id": "get",
+   "type": "cta",
+   "duration": 3,
+   "props": {
+    "headline": "Download TaxStreem Today",
+    "highlight": [
+     "Today"
+    ],
+    "cta": "Get the app"
+   },
+   "transition": "star"
+  }
+ ]
+}

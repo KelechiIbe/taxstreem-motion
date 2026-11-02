@@ -17,6 +17,7 @@ import { ExportModal, JsonModal, VoiceModal } from "./Modals";
 import { Player } from "./Player";
 import { SceneDirector, type Direction } from "./SceneDirector";
 import { ScriptEditor } from "./ScriptEditor";
+import { TemplatePreview } from "./Templates";
 
 export interface ProjectRow {
   id: string;
@@ -27,6 +28,7 @@ export interface ProjectRow {
   thumb_path: string | null;
   script: Script | null;
   stage: "script" | "video";
+  blueprint: string | null;
 }
 interface VersionRow {
   id: number;
@@ -90,6 +92,7 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
   const [mixed, setMixed] = useState<AudioBuffer | null>(null);
   const [tab, setTab] = useState<"assets" | "versions" | "renders">("assets");
   const [modal, setModal] = useState<null | "voice" | "export" | "json" | "style" | "stock" | "image" | "envato">(null);
+  const [previewTpl, setPreviewTpl] = useState<string | null>(null);
   const [director, setDirector] = useState<{ sceneId: string; index: number; mode: "script" | "video" } | null>(null);
   const [envatoAsk, setEnvatoAsk] = useState<{ query?: string; type?: EnvatoType; sceneId?: string; request?: string } | null>(null);
   const [pexelsOn, setPexelsOn] = useState(false);
@@ -105,7 +108,7 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
 
   // ------------------------------------------------------------ data
   const loadProject = useCallback(async () => {
-    const p = check(await sb.from("motion_projects").select("id, title, format, spec, version, thumb_path, script, stage").eq("id", projectId).single()) as ProjectRow;
+    const p = check(await sb.from("motion_projects").select("id, title, format, spec, version, thumb_path, script, stage, blueprint").eq("id", projectId).single()) as ProjectRow;
     setProject(p);
     if (!modeSet.current) {
       modeSet.current = true;
@@ -382,6 +385,13 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
     setProject((p) => (p ? { ...p, script: s } : p));
   };
 
+  /** The template the video follows; kept on the project and on its script. */
+  const setBlueprint = async (id: string | null) => {
+    if (!project) return;
+    check(await sb.from("motion_projects").update({ blueprint: id }).eq("id", project.id));
+    setProject((p) => (p ? { ...p, blueprint: id } : p));
+  };
+
   /** Saves the team's direction for one scene; in the video it also asks Claude to rebuild just that scene. */
   const applyDirection = async (dir: { sceneId: string; index: number; mode: "script" | "video" }, d: Direction) => {
     if (!project) return;
@@ -519,6 +529,9 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
             <ScriptEditor
               script={project.script}
               assets={assets}
+              blueprint={project.blueprint}
+              onBlueprint={(id) => setBlueprint(id).catch((e) => setErr(e.message))}
+              onPreview={setPreviewTpl}
               onDirect={(sceneId) => setDirector({ sceneId, index: Math.max(0, project.script?.scenes.findIndex((x) => x.id === sceneId) ?? 0), mode: "script" })}
               onFindEnvato={(sceneId, request) => {
                 const m = request.match(/^envato:(?:(video|clip|photo|image|music|sfx|sound):)?(.*)$/i);
@@ -628,6 +641,16 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
           )}
         </aside>
       </div>
+      {previewTpl && (
+        <TemplatePreview
+          id={previewTpl}
+          onClose={() => setPreviewTpl(null)}
+          onUse={(id) => {
+            setBlueprint(id).catch((e) => setErr(e.message));
+            setPreviewTpl(null);
+          }}
+        />
+      )}
       {director && project && (() => {
         const sc = project.script?.scenes.find((x) => x.id === director.sceneId);
         const specScene = spec?.scenes.find((x) => x.id === director.sceneId);

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { AssetRow } from "../lib/assets";
+import { BLUEPRINTS, BLUEPRINT_BY_ID } from "../runtime/blueprints";
 import { LOOKS } from "../runtime/looks";
+import { TemplateGrid } from "./Templates";
 import type { Format, Script, ScriptScene } from "../runtime/types";
 
 const FORMATS: Format[] = ["9:16", "1:1", "16:9"];
@@ -16,7 +18,11 @@ export function ScriptEditor(p: {
   onVoiceover: (text: string, direction?: string) => void;
   onFindEnvato: (sceneId: string, request: string) => void;
   onDirect: (sceneId: string) => void;
+  blueprint: string | null;
+  onBlueprint: (id: string | null) => void;
+  onPreview: (id: string) => void;
 }) {
+  const [picking, setPicking] = useState(false);
   const [draft, setDraft] = useState<Script | null>(p.script);
   const [saved, setSaved] = useState(true);
   const timer = useRef<number | null>(null);
@@ -50,6 +56,36 @@ export function ScriptEditor(p: {
         <h3>Start with the idea</h3>
         <p className="muted">Tell Claude the core idea and the context in the chat: what the video should say, who it's for, where it'll be posted, how long, and the style you want. Attach a Word or PDF brief, screenshots, footage or a sample video to replicate. Claude writes an editable script here; once you approve it, the video is built from it.</p>
         {p.busy && <p className="small"><span className="spinner" /> Writing…</p>}
+        <div className="tpl-section stack">
+          {p.blueprint && BLUEPRINT_BY_ID.get(p.blueprint) && !picking ? (
+            <div className="tpl-chosen">
+              <img src={`/templates/${p.blueprint}.jpg`} alt="" />
+              <div style={{ flex: 1 }}>
+                <div className="small muted">Template</div>
+                <strong>{BLUEPRINT_BY_ID.get(p.blueprint)!.name}</strong>
+                <div className="small muted">{BLUEPRINT_BY_ID.get(p.blueprint)!.tagline}</div>
+                <div className="small" style={{ marginTop: 4 }}>You'll need: {BLUEPRINT_BY_ID.get(p.blueprint)!.needs}</div>
+              </div>
+              <div className="stack" style={{ gap: 6 }}>
+                <button className="btn small" onClick={() => p.onPreview(p.blueprint!)}>Preview</button>
+                <button className="btn small" onClick={() => setPicking(true)}>Change</button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <strong>Pick a template (optional)</strong>
+              <TemplateGrid
+                value={p.blueprint}
+                onPick={(id) => {
+                  p.onBlueprint(id);
+                  setPicking(false);
+                }}
+                onPreview={p.onPreview}
+                compact
+              />
+            </>
+          )}
+        </div>
       </div>
     );
   }
@@ -92,6 +128,28 @@ export function ScriptEditor(p: {
         <textarea rows={4} value={draft.context ?? ""} placeholder="Who it's for, where it'll run, the key message, facts to use, anything to avoid" onChange={(e) => change({ ...draft, context: e.target.value })} />
       </label>
       <div className="script-meta">
+        <label className="field">
+          <span>
+            Template{" "}
+            {(draft.blueprint ?? p.blueprint) && (
+              <button type="button" className="link small" onClick={() => p.onPreview((draft.blueprint ?? p.blueprint)!)}>preview</button>
+            )}
+          </span>
+          <select
+            value={draft.blueprint ?? p.blueprint ?? ""}
+            onChange={(e) => {
+              const id = e.target.value || null;
+              const b = id ? BLUEPRINT_BY_ID.get(id) : null;
+              change({ ...draft, blueprint: id ?? undefined, look: b ? b.look : draft.look });
+              p.onBlueprint(id);
+            }}
+          >
+            <option value="">No template</option>
+            {BLUEPRINTS.map((b) => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+        </label>
         <label className="field">
           <span>Style</span>
           <select value={draft.look} onChange={(e) => change({ ...draft, look: e.target.value })}>

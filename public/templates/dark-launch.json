@@ -1,0 +1,161 @@
+{
+ "version": 1,
+ "title": "Dark Launch sample",
+ "format": "16:9",
+ "look": "neon",
+ "assets": {
+  "dash": "/templates/dashboard.png",
+  "mobile": "/templates/mobile.png"
+ },
+ "scenes": [
+  {
+   "id": "spark",
+   "type": "sentence",
+   "duration": 2.6,
+   "props": {
+    "mode": "assemble",
+    "lines": [
+     "TaxStreem *AI*"
+    ]
+   }
+  },
+  {
+   "id": "promise",
+   "type": "sentence",
+   "duration": 3,
+   "props": {
+    "mode": "dolly",
+    "lines": [
+     "Your taxes, *reimagined*"
+    ]
+   },
+   "transition": "through"
+  },
+  {
+   "id": "reveal",
+   "type": "hero",
+   "duration": 4.8,
+   "props": {
+    "device": "browser",
+    "image": "dash",
+    "title": "Meet Your AI Tax Team",
+    "highlight": [
+     "AI"
+    ],
+    "chips": [
+     {
+      "text": "VAT filed",
+      "icon": "circle-check"
+     },
+     {
+      "text": "₦100,379 due",
+      "sub": "21 Nov",
+      "icon": "calendar-clock"
+     },
+     {
+      "text": "PAYE ready",
+      "icon": "users"
+     }
+    ]
+   },
+   "transition": "star"
+  },
+  {
+   "id": "prompt",
+   "type": "ui",
+   "duration": 3.8,
+   "props": {
+    "kind": "prompt",
+    "placeholder": "Ask TaxStreem",
+    "text": "File my November VAT",
+    "tilt": "back"
+   },
+   "transition": "through"
+  },
+  {
+   "id": "show",
+   "type": "wall",
+   "duration": 4.4,
+   "props": {
+    "layout": "carousel",
+    "items": [
+     {
+      "media": "dash",
+      "label": "VAT"
+     },
+     {
+      "media": "mobile",
+      "label": "PAYE"
+     },
+     {
+      "media": "dash",
+      "label": "WHT"
+     },
+     {
+      "media": "mobile",
+      "label": "CIT"
+     }
+    ]
+   },
+   "transition": "through"
+  },
+  {
+   "id": "depth",
+   "type": "screenshot",
+   "duration": 4.6,
+   "props": {
+    "image": "dash",
+    "tilt": "back",
+    "open": {
+     "x": 0.66,
+     "y": 0.42,
+     "zoom": 2.3,
+     "at": 0.5
+    },
+    "focus": [
+     {
+      "x": 0.55,
+      "y": 0.15,
+      "w": 0.27,
+      "h": 0.22,
+      "at": 2.2,
+      "label": "VAT payable"
+     }
+    ]
+   },
+   "transition": "through"
+  },
+  {
+   "id": "statement",
+   "type": "sentence",
+   "duration": 3.4,
+   "props": {
+    "mode": "brackets",
+    "squeeze": true,
+    "lines": [
+     {
+      "text": "It turns receipts into",
+      "at": 0.15
+     },
+     {
+      "text": "*filed returns*",
+      "at": 1.3
+     }
+    ]
+   }
+  },
+  {
+   "id": "close",
+   "type": "cta",
+   "duration": 3,
+   "props": {
+    "headline": "The Future Of Filing",
+    "highlight": [
+     "Filing"
+    ],
+    "cta": "Join the beta"
+   },
+   "transition": "mark"
+  }
+ ]
+}
