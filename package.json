@@ -1,0 +1,31 @@
+{
+  "name": "taxstreem-motion",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "TaxStreem Motion: chat with Claude to turn content, screenshots and audio into on-brand motion videos.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b",
+    "render": "node scripts/render.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.117.3",
+    "mediabunny": "1.61.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@fontsource-variable/inter": "^5.2.5",
+    "@netlify/functions": "6.0.2",
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "5.2.0",
+    "lucide-static": "^0.460.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.7"
+  }
+}
