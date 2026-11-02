@@ -36,13 +36,20 @@ export interface AudioSpec {
   duck?: boolean;
 }
 
+export type PaletteSpec = "brand" | "look" | { primary?: string; secondary?: string; tertiary?: string; ink?: string; paper?: string };
+
 export interface VideoSpec {
   version: 1;
   title: string;
   /** Format the team is designing for; the same spec renders in all three. */
   format: Format;
   fps?: number;
-  theme: Theme;
+  /** Style: fonts, backgrounds, surfaces and motion feel. See looks.ts. Defaults to "taxstreem". */
+  look?: string;
+  /** Colours: "brand" (TaxStreem, the default), "look" (the style's own colourway) or custom hex colours. */
+  palette?: PaletteSpec;
+  /** Default background for scenes. Defaults to the look's default. */
+  theme?: Theme;
   scenes: SceneSpec[];
   audio?: AudioSpec;
   /** Burned-in captions from the voiceover's word timings. */
@@ -62,7 +69,7 @@ export interface Word {
 /** Facts about an asset the runtime and the prompt both need. */
 export interface AssetInfo {
   id: string;
-  kind: "image" | "audio" | "voice";
+  kind: "image" | "audio" | "voice" | "video" | "reference";
   name: string;
   width?: number;
   height?: number;

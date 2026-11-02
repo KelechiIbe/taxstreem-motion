@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "title": "Every template",
+  "format": "9:16",
+  "theme": "light",
+  "scenes": [
+    { "id": "title", "type": "title", "duration": 3, "props": { "kicker": "VAT made simple", "headline": "File your VAT in minutes, not days", "highlight": ["minutes"], "sub": "TaxStreem does the maths and the filing.", "logo": true } },
+    { "id": "statement", "type": "statement", "duration": 3, "props": { "text": "Most businesses lose hours every month to manual tax reconciliation.", "cta": "See how" } },
+    { "id": "stat", "type": "stat", "duration": 3, "theme": "blue", "props": { "kicker": "Last quarter", "value": 1250000, "prefix": "₦", "compact": true, "label": "saved on VAT for our customers", "badge": "+38% vs Q2", "bar": 0.72 } },
+    { "id": "shot", "type": "screenshot", "duration": 4.5, "props": { "image": "dash", "title": "Every filing in one place", "focus": [{ "x": 0.05, "y": 0.15, "w": 0.4, "h": 0.3, "at": 1.4, "label": "Due this week" }], "cursor": [{ "x": 0.3, "y": 0.3, "at": 2.6 }] } },
+    { "id": "features", "type": "features", "duration": 3.5, "props": { "kicker": "Why teams switch", "title": "Built for Nigerian tax", "items": [ { "icon": "receipt", "title": "Auto VAT", "body": "Computed from your invoices." }, { "icon": "shield-check", "title": "Always compliant", "body": "Rules updated for every change." }, { "icon": "bell", "title": "Deadline alerts", "body": "Never miss the 21st again." } ] } },
+    { "id": "steps", "type": "steps", "duration": 4, "props": { "title": "Three steps", "steps": [ { "title": "Connect your books", "body": "Bank, POS or spreadsheet." }, { "title": "Review the return", "body": "We flag anything odd." }, { "title": "File with FIRS", "body": "One click." } ] } },
+    { "id": "chart", "type": "chart", "duration": 3.5, "theme": "dark", "props": { "title": "Filings per month", "data": [ { "label": "Jan", "value": 120 }, { "label": "Feb", "value": 180 }, { "label": "Mar", "value": 260 }, { "label": "Apr", "value": 410 } ] } },
+    { "id": "compare", "type": "compare", "duration": 4, "props": { "title": "Before and after", "left": { "title": "Spreadsheets", "items": ["Manual sums", "Missed deadlines", "Penalties"] }, "right": { "title": "With TaxStreem", "items": ["Automatic", "Reminders", "Filed on time"] } } },
+    { "id": "deadline", "type": "deadline", "duration": 3.5, "props": { "month": "July", "day": "21", "kicker": "Reminder", "title": "VAT is due on the 21st", "sub": "File early and skip the queue.", "countdown": "5 days left" } },
+    { "id": "quote", "type": "quote", "duration": 3.5, "props": { "text": "We closed our books two days faster every month.", "highlight": ["two days faster"], "author": "Ada Okafor", "role": "Finance lead, Kudi" } },
+    { "id": "cta", "type": "cta", "duration": 3.5, "theme": "blue", "props": { "headline": "Start filing smarter", "sub": "Free for your first return.", "cta": "Start now", "click": true } },
+    { "id": "logo", "type": "logo", "duration": 2.5, "props": { "tagline": "Tax, sorted." } }
+  ]
+}

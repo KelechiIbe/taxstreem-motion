@@ -3,13 +3,24 @@
 // code drives the live preview, frame review and the MP4 export.
 
 import * as D from "./draw";
-import { BRAND, PALETTES, type Ctx, type Stage } from "./draw";
+import { type Ctx, type Stage } from "./draw";
 import { clamp, ease, hashString, spring } from "./lib";
-import { TEMPLATES } from "./scenes";
-import type { SceneSpec, SceneTiming, TransitionKind, VideoSpec, Word } from "./types";
+import { colorwayFor, getLook, type Colorway, type Look } from "./looks";
+import { TEMPLATES, type MediaFrame } from "./scenes";
+import type { SceneSpec, SceneTiming, Theme, TransitionKind, VideoSpec, Word } from "./types";
+
+/** Decoded video frames, provided by the worker or the lab page. */
+export interface VideoSource {
+  /** The frame showing at `at` seconds into the clip, or the nearest one decoded so far. Records misses. */
+  frame(id: string, at: number): (CanvasImageSource & { width: number; height: number }) | null;
+  has(id: string): boolean;
+  duration(id: string): number;
+  size(id: string): { width: number; height: number } | null;
+}
 
 export interface Env {
   images: Map<string, ImageBitmap>;
+  video?: VideoSource;
   /** Voiceover word timings (seconds from the start of the voice file). */
   words?: Word[];
   /** Music beat times (seconds into the music file). */
@@ -30,8 +41,14 @@ export class Composition {
   readonly warnings = new Set<string>();
   private layers: [OffscreenCanvas, OffscreenCanvas];
   private phrases: Phrase[] = [];
+  readonly look: Look;
+  readonly colors: Colorway;
+  readonly theme: Theme;
 
   constructor(public spec: VideoSpec, public stage: Stage, private env: Env) {
+    this.look = getLook(spec.look);
+    this.colors = colorwayFor(this.look, spec.palette);
+    this.theme = spec.theme ?? this.look.defaultTheme;
     const scenes = Array.isArray(spec.scenes) ? spec.scenes : [];
     let starts: number[] = [];
     let at = 0;
@@ -91,10 +108,11 @@ export class Composition {
   private drawScene(ctx: Ctx, i: number, local: number) {
     const sc = this.spec.scenes[i] as SceneSpec;
     const tm = this.timings[i];
-    const theme = sc.theme ?? this.spec.theme ?? "light";
+    const theme = sc.theme ?? this.theme;
     const s = this.stage;
     ctx.save();
     D.background(ctx, s, theme, { t: tm.start + local, seed: hashString(sc.id || String(i)) % 7, pattern: sc.props?.pattern !== false });
+    const env = this.env;
     const tpl = TEMPLATES[sc.type];
     if (tpl) {
       try {
@@ -104,11 +122,23 @@ export class Composition {
           t: local,
           d: tm.duration,
           p: sc.props ?? {},
-          pal: PALETTES[theme] ?? PALETTES.light,
+          pal: D.palette(theme),
           theme,
           scene: sc,
           index: i,
-          image: (id) => (id ? ((this.env.images.get(id) as any) ?? null) : null),
+          image: (id) => (id ? ((env.images.get(id) as any) ?? null) : null),
+          media: (id, at = 0): MediaFrame | null => {
+            if (!id) return null;
+            const img = env.images.get(id);
+            if (img) return { source: img as any, width: img.width, height: img.height };
+            if (env.video?.has(id)) {
+              const f = env.video.frame(id, Math.max(0, at));
+              const sz = env.video.size(id);
+              if (f) return { source: f, width: sz?.width ?? f.width, height: sz?.height ?? f.height };
+            }
+            return null;
+          },
+          mediaDuration: (id) => (id && env.video?.has(id) ? env.video.duration(id) : 0),
           warn: (m) => this.warn(m),
         });
       } catch (e) {
@@ -120,12 +150,14 @@ export class Composition {
 
   render(ctx: Ctx, t: number) {
     const { W, H } = this.stage;
+    D.setLook(this.look, this.colors);
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
+    ctx.filter = "none";
     if (!this.timings.length) {
-      D.background(ctx, this.stage, this.spec.theme ?? "light", { t });
+      D.background(ctx, this.stage, this.theme, { t });
       ctx.restore();
       return;
     }
@@ -133,7 +165,7 @@ export class Composition {
     const i = this.sceneAt(t);
     const tm = this.timings[i];
     const local = t - tm.start;
-    const kind: TransitionKind = (this.spec.scenes[i].transition as TransitionKind) ?? (i === 0 ? "cut" : "fade");
+    const kind: TransitionKind = (this.spec.scenes[i].transition as TransitionKind) ?? (i === 0 ? "cut" : this.look.motion.transition);
     const td = Math.min(TDUR[kind] ?? 0.5, tm.duration * 0.5, this.timings[i - 1]?.duration ?? 0);
     if (i > 0 && td > 0 && local < td) {
       const prev = this.timings[i - 1];
@@ -197,8 +229,8 @@ export class Composition {
         const k2 = ease.inOutQuart(clamp((p - 0.5) / 0.5));
         ctx.save();
         const g = vertical ? ctx.createLinearGradient(0, H, 0, 0) : ctx.createLinearGradient(0, 0, W, 0);
-        g.addColorStop(0, BRAND.primary);
-        g.addColorStop(1, BRAND.lightBlue);
+        g.addColorStop(0, D.brandColors() ? D.BRAND.primary : this.colors.primary);
+        g.addColorStop(1, D.brandColors() ? D.BRAND.lightBlue : this.colors.secondary);
         ctx.fillStyle = g;
         if (vertical) {
           // bottom to top: the panel rises over A, then its tail lifts off B
@@ -210,7 +242,7 @@ export class Composition {
           else ctx.fillRect(W * k2, 0, W * (1 - k2), H);
         }
         const mid = 1 - Math.abs(p - 0.5) * 2;
-        if (mid > 0.2) {
+        if (mid > 0.2 && D.brandColors()) {
           const mh = 150 * u;
           D.mark(ctx, W / 2 - D.markWidth(mh) / 2, H / 2 - mh / 2, mh, "#FFFFFF", clamp((mid - 0.2) / 0.5), 0.6 + 0.4 * mid);
         }
@@ -246,15 +278,21 @@ export class Composition {
   private overlays(ctx: Ctx, t: number, i: number) {
     const s = this.stage;
     const u = s.u;
-    const theme = this.spec.scenes[i]?.theme ?? this.spec.theme ?? "light";
+    const theme = this.spec.scenes[i]?.theme ?? this.theme;
     if (this.spec.brandBug) {
       const h = 46 * u;
-      D.mark(ctx, s.safe.x, (s.portrait ? 120 : 56) * u, h, theme === "light" ? BRAND.primary : "#FFFFFF", 0.9);
+      D.mark(ctx, s.safe.x, (s.portrait ? 120 : 56) * u, h, theme === "light" && D.palette(theme).logo === "dark" ? D.BRAND.primary : "#FFFFFF", 0.9);
     }
     if (this.spec.captions?.enabled && this.phrases.length) {
       const ph = this.phrases.find((q) => t >= q.start - 0.05 && t <= q.end + 0.3);
       if (ph) this.caption(ctx, ph, t);
     }
+  }
+
+  private get karaoke() {
+    if (D.brandColors()) return D.BRAND.lightBlue;
+    const d = D.palette("dark");
+    return D.solid(d.accent);
   }
 
   private caption(ctx: Ctx, ph: Phrase, t: number) {
@@ -290,12 +328,12 @@ export class Composition {
         ctx.lineJoin = "round";
         ctx.strokeStyle = "rgba(10,10,10,0.9)";
         ctx.lineWidth = 10 * u;
-        D.setFont(ctx, laid.weight, laid.size, laid.tracking);
+        D.fontFor(ctx, laid, lw);
         ctx.strokeText(lw.text, lw.x, lw.y);
         ctx.restore();
       }
       D.drawWord(ctx, laid, lw, spoken ? (bold ? "#FFFFFF" : "#FFFFFF") : "rgba(255,255,255,0.5)");
-      if (spoken && w && t < w.end + 0.05) D.drawWord(ctx, laid, lw, BRAND.lightBlue);
+      if (spoken && w && t < w.end + 0.05) D.drawWord(ctx, laid, lw, this.karaoke);
     });
     ctx.restore();
   }
@@ -340,8 +378,23 @@ export function reviewTimes(comp: Composition): { t: number; label: string }[] {
   return out.sort((a, b) => a.t - b.t);
 }
 
+/** Something that can decode missing video frames between render passes. */
+export interface FrameFiller {
+  hasMisses(): boolean;
+  fill(): Promise<void>;
+}
+
+/** Renders a frame, decoding any video frames it needed and drawing again until it's complete. */
+export async function renderSettled(comp: Composition, ctx: Ctx, t: number, video?: FrameFiller) {
+  comp.render(ctx, t);
+  for (let k = 0; k < 3 && video?.hasMisses(); k++) {
+    await video.fill();
+    comp.render(ctx, t);
+  }
+}
+
 /** Tiles frames into one labelled contact sheet image for visual review. */
-export function contactSheet(comp: Composition, times: { t: number; label: string }[], cols = 6, thumbW = 300): OffscreenCanvas {
+export async function contactSheet(comp: Composition, times: { t: number; label: string }[], cols = 6, thumbW = 300, video?: FrameFiller): Promise<OffscreenCanvas> {
   const { W, H } = comp.stage;
   const tw = thumbW;
   const th = Math.round((tw * H) / W);
@@ -353,8 +406,9 @@ export function contactSheet(comp: Composition, times: { t: number; label: strin
   g.fillRect(0, 0, sheet.width, sheet.height);
   const frame = new OffscreenCanvas(W, H);
   const fc = frame.getContext("2d")!;
-  times.forEach((x, k) => {
-    comp.render(fc, x.t);
+  for (let k = 0; k < times.length; k++) {
+    const x = times[k];
+    await renderSettled(comp, fc, x.t, video);
     const cx = 8 + (k % cols) * (tw + 8);
     const cy = 8 + Math.floor(k / cols) * (th + labelH + 8);
     g.drawImage(frame, cx, cy, tw, th);
@@ -362,6 +416,6 @@ export function contactSheet(comp: Composition, times: { t: number; label: strin
     g.font = "600 13px Inter, Arial, sans-serif";
     (g as any).letterSpacing = "0px";
     g.fillText(`${x.t.toFixed(2)}s  ${x.label}`.slice(0, 44), cx + 2, cy + th + 18);
-  });
+  }
   return sheet;
 }

@@ -6,7 +6,8 @@
 //   node scripts/render.mjs spec.json --format 9:16 --out out.mp4 [--fps 30] [--audio mix.wav]
 //   node scripts/render.mjs spec.json --format 16:9 --sheet sheet.jpg
 //   node scripts/render.mjs spec.json --format 1:1 --frames 0.5,2,4 --frames-dir shots/
-//   options: --asset id=path/to/image.png (repeatable), --words words.json, --beats beats.json
+//   options: --asset id=path/to/image.png (repeatable), --words words.json, --beats beats.json,
+//            --look glass (override the spec's look), --palette brand|look, --theme light|dark|blue
 import { createServer } from "node:http";
 import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from "node:fs";
 import { extname, join, resolve, dirname } from "node:path";
@@ -35,6 +36,12 @@ if (!existsSync(join(dist, "lab.html"))) {
   process.exit(1);
 }
 const spec = JSON.parse(readFileSync(specPath, "utf8"));
+if (opt("look")) spec.look = opt("look");
+if (opt("palette")) spec.palette = opt("palette");
+if (opt("theme")) {
+  spec.theme = opt("theme");
+  for (const sc of spec.scenes ?? []) delete sc.theme;
+}
 const format = opt("format", spec.format || "9:16");
 const fps = Number(opt("fps", spec.fps || 30));
 
@@ -49,7 +56,7 @@ for (const a of many("asset")) {
 const words = opt("words") ? JSON.parse(readFileSync(opt("words"), "utf8")) : undefined;
 const beats = opt("beats") ? JSON.parse(readFileSync(opt("beats"), "utf8")) : undefined;
 
-const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".svg": "image/svg+xml", ".json": "application/json", ".webp": "image/webp" };
+const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".svg": "image/svg+xml", ".json": "application/json", ".webp": "image/webp", ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime" };
 const server = createServer((req, res) => {
   const url = decodeURIComponent((req.url || "/").split("?")[0]);
   const file = local.get(encodeURI(url)) ?? local.get(url) ?? join(dist, url === "/" ? "index.html" : url);
@@ -77,7 +84,10 @@ const toBuf = (dataUrl) => Buffer.from(dataUrl.split(",")[1], "base64");
 const sheet = opt("sheet");
 if (sheet) {
   const cols = Number(opt("cols", format === "16:9" ? 5 : 7));
-  const url = await page.evaluate(([c]) => window.lab.sheet(undefined, c, 280), [cols]);
+  // --at 0.85 makes a storyboard: one frame per scene at that fraction of its length
+  const at = opt("at") ? Number(opt("at")) : null;
+  const times = at === null ? undefined : info.timings.map((tm) => ({ t: tm.start + tm.duration * at, label: tm.id }));
+  const url = await page.evaluate(([c, ts, w]) => window.lab.sheet(ts, c, w), [cols, times, Number(opt("thumb", 280))]);
   writeFileSync(sheet, toBuf(url));
   console.log("sheet:", sheet);
 }
