@@ -14,6 +14,7 @@ export function ScriptEditor(p: {
   onSave: (s: Script) => Promise<void>;
   onApprove: (s: Script) => void;
   onVoiceover: (text: string, direction?: string) => void;
+  onFindEnvato: (sceneId: string, request: string) => void;
 }) {
   const [draft, setDraft] = useState<Script | null>(p.script);
   const [saved, setSaved] = useState(true);
@@ -166,6 +167,15 @@ export function ScriptEditor(p: {
                 <span className="muted">Media:</span>
                 {(s.media ?? []).map((m) => {
                   const a = p.assets.find((x) => x.id === m);
+                  if (!a && /^envato:/i.test(m)) {
+                    const words = m.replace(/^envato:(?:(video|clip|photo|image|music|sfx|sound):)?/i, "");
+                    return (
+                      <span key={m} className="chip envato-ask">
+                        <button className="link small" title={`Find on Envato: ${words}`} onClick={() => p.onFindEnvato(s.id, m)}>Find on Envato: {words}</button>
+                        <button onClick={() => setScene(i, { media: (s.media ?? []).filter((x) => x !== m) })} aria-label="Remove">×</button>
+                      </span>
+                    );
+                  }
                   return (
                     <span key={m} className="chip">
                       {a ? a.name : m.replace(/^(stock|generate):/, (x) => (x === "stock:" ? "Stock: " : "AI image: "))}

@@ -10,7 +10,7 @@ import type { Format, PaletteSpec, Script, VideoSpec } from "../runtime/types";
 import { checkSpec } from "../runtime/validate";
 import { TopBar, type Me } from "./App";
 import { Chat, type MessageRow } from "./Chat";
-import { ImageModal, StockModal, StyleModal, type StockItem } from "./MediaModals";
+import { EnvatoModal, ImageModal, StockModal, StyleModal, type EnvatoItem, type EnvatoType, type StockItem } from "./MediaModals";
 import { ExportModal, JsonModal, VoiceModal } from "./Modals";
 import { Player } from "./Player";
 import { ScriptEditor } from "./ScriptEditor";
@@ -86,7 +86,9 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [mixed, setMixed] = useState<AudioBuffer | null>(null);
   const [tab, setTab] = useState<"assets" | "versions" | "renders">("assets");
-  const [modal, setModal] = useState<null | "voice" | "export" | "json" | "style" | "stock" | "image">(null);
+  const [modal, setModal] = useState<null | "voice" | "export" | "json" | "style" | "stock" | "image" | "envato">(null);
+  const [envatoAsk, setEnvatoAsk] = useState<{ query?: string; type?: EnvatoType; sceneId?: string; request?: string } | null>(null);
+  const [pexelsOn, setPexelsOn] = useState(false);
   const [voiceText, setVoiceText] = useState<{ text: string; direction?: string } | null>(null);
   const [autoReview, setAutoReview] = useState(() => localStorage.getItem("motion.autoReview") !== "off");
   const [pendingAttach, setPendingAttach] = useState<string[]>([]);
@@ -115,6 +117,10 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
   }, [projectId]);
   const loadVersions = useCallback(async () => setVersions(check(await sb.from("motion_versions").select("id, n, note, source, created_at").eq("project_id", projectId).order("n", { ascending: false }).limit(60)) as VersionRow[]), [projectId]);
   const loadRenders = useCallback(async () => setRenders(check(await sb.from("motion_renders").select("*").eq("project_id", projectId).order("created_at", { ascending: false }).limit(40)) as RenderRow[]), [projectId]);
+
+  useEffect(() => {
+    api<Record<string, { set: boolean }>>("motion-keys").then((k) => setPexelsOn(!!k.pexels?.set), () => {});
+  }, []);
 
   useEffect(() => {
     Promise.all([loadProject(), loadMessages(), loadAssets(), loadVersions(), loadRenders()]).catch((e) => setErr(e.message));
@@ -299,23 +305,25 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
     }
   };
 
+  /** Uploads one file as the right kind of asset. */
+  const uploadOne = async (f: File, kind?: "audio" | "voice" | "sample"): Promise<AssetRow> => {
+    setStage(`Uploading ${f.name}`);
+    const isVideo = f.type.startsWith("video/") || VIDEO_FILE.test(f.name);
+    if (kind === "sample") {
+      if (!isVideo) throw new Error("A sample should be a video file (MP4, MOV or WebM).");
+      return uploadSample(projectId, f, setStage);
+    }
+    if (isVideo) return uploadVideo(projectId, f, setStage);
+    if (f.type.startsWith("image/")) return uploadImage(projectId, f);
+    if (f.type.startsWith("audio/") || AUDIO_FILE.test(f.name)) return uploadAudio(projectId, f, kind === "voice" || kind === "audio" ? kind : /voice|vo\b|narration/i.test(f.name) ? "voice" : "audio");
+    throw new Error("Use images, video clips or audio files.");
+  };
+
   const onFiles = async (files: File[], kind?: "audio" | "voice" | "sample") => {
     setErr(null);
     for (const f of files) {
       try {
-        setStage(`Uploading ${f.name}`);
-        let row: AssetRow;
-        const isVideo = f.type.startsWith("video/") || VIDEO_FILE.test(f.name);
-        if (kind === "sample") {
-          if (!isVideo) throw new Error("A sample should be a video file (MP4, MOV or WebM).");
-          row = await uploadSample(projectId, f, setStage);
-        } else if (isVideo) row = await uploadVideo(projectId, f, setStage);
-        else if (f.type.startsWith("image/")) row = await uploadImage(projectId, f);
-        else if (f.type.startsWith("audio/") || AUDIO_FILE.test(f.name)) row = await uploadAudio(projectId, f, kind === "voice" || kind === "audio" ? kind : /voice|vo\b|narration/i.test(f.name) ? "voice" : "audio");
-        else {
-          setErr(`${f.name}: use images, video clips or audio files.`);
-          continue;
-        }
+        const row = await uploadOne(f, kind);
         setAssets((a) => [...a, row]);
         setPendingAttach((p) => [...p, row.id]);
       } catch (e) {
@@ -323,6 +331,25 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
       }
     }
     setStage(null);
+  };
+
+  /** A file downloaded from Envato: upload it, keep the item's link with it, and fill the script's request. */
+  const addEnvato = async (item: EnvatoItem, file: File) => {
+    try {
+      const row = await uploadOne(file, item.type === "music" || item.type === "sfx" ? "audio" : undefined);
+      const meta = { ...row.meta, source: "envato", title: item.title, credit: item.author, pageUrl: item.url, licensedFor: project?.title ?? "" };
+      const saved = check(await sb.from("motion_assets").update({ meta, name: row.name || item.title }).eq("id", row.id).select("*").single()) as AssetRow;
+      setAssets((a) => [...a, saved]);
+      setPendingAttach((p) => [...p, saved.id]);
+      const ask = envatoAsk;
+      if (ask?.sceneId && ask.request && project?.script) {
+        const script = { ...project.script, scenes: project.script.scenes.map((sc) => (sc.id === ask.sceneId ? { ...sc, media: (sc.media ?? []).map((m) => (m === ask.request ? saved.id : m)) } : sc)) };
+        await saveScript(script);
+        setEnvatoAsk(null);
+      }
+    } finally {
+      setStage(null);
+    }
   };
 
   const idsFor = () => ({
@@ -449,6 +476,12 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
             <ScriptEditor
               script={project.script}
               assets={assets}
+              onFindEnvato={(sceneId, request) => {
+                const m = request.match(/^envato:(?:(video|clip|photo|image|music|sfx|sound):)?(.*)$/i);
+                const t = (m?.[1] ?? "video").toLowerCase();
+                setEnvatoAsk({ sceneId, request, query: (m?.[2] ?? "").trim(), type: t === "clip" ? "video" : t === "image" ? "photo" : t === "sound" ? "sfx" : (t as EnvatoType) });
+                setModal("envato");
+              }}
               busy={!!busyJob}
               hasVideo={hasVideo}
               onSave={saveScript}
@@ -510,7 +543,11 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
                 setVoiceText(null);
                 setModal("voice");
               }}
-              onStock={() => setModal("stock")}
+              onStock={pexelsOn ? () => setModal("stock") : undefined}
+              onEnvato={() => {
+                setEnvatoAsk(null);
+                setModal("envato");
+              }}
               onImage={() => setModal("image")}
               onFiles={onFiles}
             />
@@ -563,6 +600,7 @@ export function Studio({ projectId, me }: { projectId: string; me: Me }) {
       {modal === "json" && spec && <JsonModal spec={spec} onClose={() => setModal(null)} onSave={async (s, note) => { await saveManual(s, note, "manual"); setModal(null); }} />}
       {modal === "style" && spec && <StyleModal look={spec.look ?? "taxstreem"} palette={spec.palette} onClose={() => setModal(null)} onApply={(l, p) => applyStyle(l, p).catch((e) => setErr(e.message))} />}
       {modal === "stock" && <StockModal format={project.format} onClose={() => setModal(null)} onImport={(item: StockItem) => mediaJob({ kind: "import", item }, "Importing stock")} />}
+      {modal === "envato" && <EnvatoModal initial={envatoAsk ?? undefined} onClose={() => { setModal(null); setEnvatoAsk(null); }} onAdd={addEnvato} />}
       {modal === "image" && (
         <ImageModal
           format={project.format}
@@ -585,7 +623,8 @@ function AssetsPanel(p: {
   onUse: (id: string) => void;
   onDelete: (a: AssetRow) => void;
   onVoice: () => void;
-  onStock: () => void;
+  onStock?: () => void;
+  onEnvato: () => void;
   onImage: () => void;
   onFiles: (f: File[], kind?: "audio" | "voice" | "sample") => void;
 }) {
@@ -608,8 +647,9 @@ function AssetsPanel(p: {
   };
   const label = (a: AssetRow) => {
     const m = a.meta ?? {};
-    if (a.kind === "image") return `${m.width ?? "?"}×${m.height ?? "?"}${m.source === "pexels" ? " · Pexels" : m.source === "elevenlabs" ? " · AI image" : ""}`;
-    if (a.kind === "video") return `Clip · ${Number(m.duration ?? 0).toFixed(1)}s${m.hasAudio ? " · sound" : ""}${m.source === "pexels" ? " · Pexels" : ""}`;
+    const src = m.source === "elevenlabs" ? " · AI image" : "";
+    if (a.kind === "image") return `${m.width ?? "?"}×${m.height ?? "?"}${src}`;
+    if (a.kind === "video") return `Clip · ${Number(m.duration ?? 0).toFixed(1)}s${m.hasAudio ? " · sound" : ""}${src}`;
     if (a.kind === "reference") return `Sample · ${Number(m.duration ?? 0).toFixed(1)}s · ${(m.shots ?? []).length} shots${m.bpm ? ` · ${Math.round(m.bpm)} BPM` : ""}`;
     return `${Number(m.duration ?? 0).toFixed(1)}s${m.bpm ? ` · ${Math.round(m.bpm)} BPM` : ""}${a.kind === "voice" ? (m.words?.length ? " · timed" : " · no timings") : ""}`;
   };
@@ -620,11 +660,12 @@ function AssetsPanel(p: {
         <button className="btn small" onClick={() => pick("video/*,.mov,.mp4,.webm,.m4v")}>+ Clip</button>
         <button className="btn small" onClick={() => pick("audio/*", "audio")}>+ Music</button>
         <button className="btn small" onClick={p.onVoice}>Voiceover</button>
-        <button className="btn small" onClick={p.onStock}>Stock</button>
+        <button className="btn small" onClick={p.onEnvato} title="Search Envato Elements">Envato</button>
+        {p.onStock && <button className="btn small" onClick={p.onStock}>Pexels</button>}
         <button className="btn small" onClick={p.onImage}>AI image</button>
         <button className="btn small" onClick={() => pick("video/*,.mov,.mp4,.webm,.m4v", "sample")} title="A motion design for Claude to replicate or learn from">+ Sample</button>
       </div>
-      {p.assets.length === 0 && <p className="muted small pad">Upload product screenshots, footage or screen recordings, music from Envato, or make a voiceover. Search stock or generate an image. Add a sample video and ask Claude to replicate or tweak it; for a YouTube example, paste the link in the chat.</p>}
+      {p.assets.length === 0 && <p className="muted small pad">Upload product screenshots, footage or screen recordings, or make a voiceover. Search Envato for clips, photos and music, or generate an image. Add a sample video and ask Claude to replicate or tweak it; for a YouTube example, paste the link in the chat.</p>}
       {p.assets.map((a) => (
         <div key={a.id} className="asset">
           {a.kind === "image" || a.kind === "video" || a.kind === "reference" ? (
@@ -643,8 +684,8 @@ function AssetsPanel(p: {
               {used.has(a.id) ? " · in use" : ""}
             </div>
             {(a.kind === "audio" || a.kind === "voice") && urls[a.id] && <audio controls preload="none" src={urls[a.id]} />}
-            {a.meta?.credit && a.meta?.source === "pexels" && (
-              <a className="small muted" href={a.meta.pageUrl} target="_blank" rel="noreferrer">Pexels · {a.meta.credit}</a>
+            {a.meta?.pageUrl && (a.meta?.source === "pexels" || a.meta?.source === "envato") && (
+              <a className="small muted" href={a.meta.pageUrl} target="_blank" rel="noreferrer">{a.meta.source === "envato" ? "Envato" : "Pexels"} · {a.meta.credit}</a>
             )}
             <div className="row">
               <button className="link small" onClick={() => p.onUse(a.id)}>Mention in chat</button>

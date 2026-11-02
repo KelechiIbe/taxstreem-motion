@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../lib/supabase";
 import { BRAND_COLORS, LOOKS, colorwayFor } from "../runtime/looks";
 import type { Format, PaletteSpec } from "../runtime/types";
@@ -186,7 +186,7 @@ export function StockModal({ format, onClose, onImport }: { format: Format; onCl
           Photos and videos provided by{" "}
           <a href="https://www.pexels.com" target="_blank" rel="noreferrer">Pexels</a>. Free to use; credit is kept with each file.
         </span>
-        {items && items.length >= 24 * page && <button className="btn small" disabled={busy} onClick={() => search(page + 1)}>More</button>}
+        {items && items.length >= 20 * page && <button className="btn small" disabled={busy} onClick={() => search(page + 1)}>More</button>}
       </div>
     </Modal>
   );
@@ -244,6 +244,127 @@ export function ImageModal({ format, onClose, onGenerate }: { format: Format; on
       <div className="row between">
         <span className="small muted">{busy ? "This usually takes 10 to 40 seconds. It'll appear in Assets." : ""}</span>
         <button className="btn primary" disabled={busy || prompt.trim().length < 8} onClick={go}>{busy ? "Generating…" : "Generate"}</button>
+      </div>
+    </Modal>
+  );
+}
+
+export type EnvatoType = "video" | "photo" | "music" | "sfx";
+
+export interface EnvatoItem {
+  title: string;
+  author: string;
+  type: EnvatoType;
+  cover: string | null;
+  aspect: number;
+  url: string;
+}
+
+const ENVATO_TABS: { id: EnvatoType; label: string; accept: string }[] = [
+  { id: "video", label: "Clips", accept: "video/*,.mov,.mp4,.webm,.m4v" },
+  { id: "photo", label: "Photos", accept: "image/*" },
+  { id: "music", label: "Music", accept: "audio/*,.mp3,.wav,.m4a,.aac" },
+  { id: "sfx", label: "Sound effects", accept: "audio/*,.mp3,.wav,.m4a,.aac" },
+];
+
+/**
+ * Search Envato Elements from the studio. Envato has no download API (and its licence asks for
+ * each download to be registered to a project), so items open on Envato to download and license,
+ * then the file comes back here with the item's link kept for the record.
+ */
+export function EnvatoModal({ initial, onClose, onAdd }: { initial?: { query?: string; type?: EnvatoType }; onClose: () => void; onAdd: (item: EnvatoItem, file: File) => Promise<void> }) {
+  const [query, setQuery] = useState(initial?.query ?? "");
+  const [type, setType] = useState<EnvatoType>(initial?.type ?? "video");
+  const [items, setItems] = useState<EnvatoItem[] | null>(null);
+  const [page, setPage] = useState(1);
+  const [more, setMore] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState<string | null>(null);
+  const [added, setAdded] = useState<Set<string>>(new Set());
+  const [err, setErr] = useState<string | null>(null);
+  const search = async (pg = 1, t = type, q = query) => {
+    if (!q.trim()) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api<{ items: EnvatoItem[]; hasMore: boolean }>("motion-envato", { query: q, type: t, page: pg });
+      setItems(pg === 1 ? r.items : [...(items ?? []), ...r.items]);
+      setMore(r.hasMore);
+      setPage(pg);
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+    setBusy(false);
+  };
+  // a request from the script opens with its search already run
+  useEffect(() => {
+    if (initial?.query) void search(1, initial.type ?? "video", initial.query);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const addFile = (it: EnvatoItem) => {
+    const tab = ENVATO_TABS.find((x) => x.id === it.type) ?? ENVATO_TABS[0];
+    const i = document.createElement("input");
+    i.type = "file";
+    i.accept = tab.accept;
+    i.onchange = async () => {
+      const f = i.files?.[0];
+      if (!f) return;
+      setAdding(it.url);
+      setErr(null);
+      try {
+        await onAdd(it, f);
+        setAdded((s) => new Set(s).add(it.url));
+      } catch (e) {
+        setErr(`${f.name}: ${(e as Error).message}`);
+      }
+      setAdding(null);
+    };
+    i.click();
+  };
+  return (
+    <Modal title="Envato Elements" onClose={onClose} wide>
+      <div className="row wrap">
+        <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && search(1)} placeholder="e.g. lagos market traders, african woman laptop office, upbeat corporate" style={{ flex: 1, minWidth: 240 }} />
+        <div className="seg-ctl">
+          {ENVATO_TABS.map((t) => (
+            <button
+              key={t.id}
+              className={type === t.id ? "on" : ""}
+              onClick={() => {
+                setType(t.id);
+                if (query.trim()) void search(1, t.id);
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <button className="btn primary small" disabled={busy || !query.trim()} onClick={() => search(1)}>{busy ? "Searching…" : "Search"}</button>
+      </div>
+      <p className="muted small" style={{ margin: 0 }}>
+        Open an item on Envato, download it there and register the licence to this video's project name. Then press <strong>Add file</strong> on the same item and pick the file you downloaded. The Envato link is saved with it.
+      </p>
+      {err && <p className="error small" style={{ margin: 0 }}>{err}</p>}
+      {items && items.length === 0 && <p className="muted small">Nothing found. Try simpler words.</p>}
+      {items && items.length > 0 && (
+        <div className={`stock-grid ${type === "music" || type === "sfx" ? "audio" : ""}`}>
+          {items.map((it) => (
+            <div key={it.url} className={`stock envato ${added.has(it.url) ? "done" : ""}`}>
+              {it.cover ? <img src={it.cover} alt={it.title} loading="lazy" /> : <div className="audio-cover">♪</div>}
+              <div className="envato-meta">
+                <span className="ellipsis" title={it.title}>{it.title}</span>
+                <span className="muted ellipsis">{it.author}</span>
+                <span className="row">
+                  <a className="btn small" href={it.url} target="_blank" rel="noreferrer">Open on Envato</a>
+                  <button className="btn small primary" disabled={!!adding} onClick={() => addFile(it)}>{adding === it.url ? "Adding…" : added.has(it.url) ? "Added" : "Add file"}</button>
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="row between">
+        <span className="small muted">Search by Envato's official catalogue service. Needs your Envato Elements subscription to download.</span>
+        {more && <button className="btn small" disabled={busy} onClick={() => search(page + 1)}>More</button>}
       </div>
     </Modal>
   );
