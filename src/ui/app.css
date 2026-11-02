@@ -216,7 +216,7 @@ textarea.code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fon
 .script-meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .script-meta.two { grid-template-columns: 1fr 1fr; }
 .script-stats { padding-top: 2px; }
-.scenes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.script-scenes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .scene-card { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; background: var(--surface-1); }
 .scene-top { display: flex; align-items: center; gap: 10px; }
 .scene-top strong { width: 24px; height: 24px; border-radius: 50%; background: var(--primary); color: #fff; display: grid; place-items: center; font-size: 12px; }

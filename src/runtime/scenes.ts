@@ -1308,7 +1308,7 @@ function scrim(ctx: Ctx, s: Stage, overlay: string, position: string, box = { x:
     g.addColorStop(0.45, `rgba(${base},${light ? 0.55 : 0.4})`);
     g.addColorStop(1, `rgba(${base},0)`);
     ctx.fillStyle = g;
-  } else ctx.fillStyle = `rgba(${base},${light ? 0.55 : 0.45})`;
+  } else ctx.fillStyle = `rgba(${base},${light ? 0.6 : 0.56})`;
   ctx.fillRect(box.x, box.y, box.w, box.h);
   void C;
 }
@@ -1763,7 +1763,7 @@ const UI_KINDS: Record<string, UIKind> = {
       const maxW = box.w - (tx - box.x) - h * 1.1;
       const full = str(p.text);
       const ts0 = h * 0.27;
-      const ts = clamp(ts0 * (maxW / Math.max(1, D.measure(ctx, full, ts0, 400))), ts0 * 0.72, ts0);
+      const ts = clamp(ts0 * (maxW / Math.max(1, D.measure(ctx, full, ts0, 400))), ts0 * 0.6, ts0);
       const typeAt = start + 0.6;
       const cps = 24 / Math.max(0.5, M().stagger);
       const nChars = Math.max(0, Math.floor((t - typeAt) * cps));

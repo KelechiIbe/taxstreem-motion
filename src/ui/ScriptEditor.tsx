@@ -131,7 +131,7 @@ export function ScriptEditor(p: {
         </span>
         {words > 0 && <button className="btn small" onClick={() => p.onVoiceover(vo, draft.voiceDirection)}>Make voiceover from script</button>}
       </div>
-      <ol className="scenes">
+      <ol className="script-scenes">
         {scenes.map((s, i) => {
           const tight = s.vo && s.vo.split(/\s+/).filter(Boolean).length / Math.max(0.5, s.seconds) > 3.2;
           return (

@@ -45,7 +45,10 @@ export function Chat(p: {
   const [drag, setDrag] = useState(false);
   const end = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(Date.now());
-  useEffect(() => end.current?.scrollIntoView({ behavior: "smooth" }), [p.messages.length, p.job?.message]);
+  // newer Chrome returns a promise from scrollIntoView; an effect must not return it
+  useEffect(() => {
+    end.current?.scrollIntoView({ behavior: "smooth" });
+  }, [p.messages.length, p.job?.message]);
   useEffect(() => {
     if (!p.job) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
