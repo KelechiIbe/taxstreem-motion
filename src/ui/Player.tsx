@@ -5,7 +5,7 @@ import type { Format, SceneTiming } from "../runtime/types";
 
 const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}.${Math.floor((t % 1) * 10)}`;
 
-export function Player({ renderer, duration, timings, format, playback, busy, tRef }: { renderer: Renderer; duration: number; timings: SceneTiming[]; format: Format; playback: Playback; busy?: string | null; tRef: React.MutableRefObject<number> }) {
+export function Player({ renderer, duration, timings, format, playback, busy, directBusy, tRef, onDirect }: { renderer: Renderer; duration: number; timings: SceneTiming[]; format: Format; playback: Playback; busy?: string | null; directBusy?: boolean; tRef: React.MutableRefObject<number>; onDirect?: (sceneId: string, index: number) => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const attached = useRef(false);
   const [playing, setPlaying] = useState(false);
@@ -83,6 +83,8 @@ export function Player({ renderer, duration, timings, format, playback, busy, tR
     }
   };
 
+  const current = timings.findIndex((s) => t >= s.start && t < s.start + s.duration);
+
   const scrub = (e: React.PointerEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     seek(((e.clientX - r.left) / r.width) * duration);
@@ -109,8 +111,8 @@ export function Player({ renderer, duration, timings, format, playback, busy, tR
           onPointerMove={(e) => e.buttons && scrub(e)}
         >
           <div className="scenes">
-            {timings.map((s) => (
-              <div key={s.id} className="seg" style={{ left: `${(s.start / duration) * 100}%`, width: `${(s.duration / duration) * 100}%` }} title={`${s.id} · ${s.type} · ${s.duration.toFixed(1)}s`}>
+            {timings.map((s, i) => (
+              <div key={s.id} className={`seg ${i === current ? "on" : ""}`} style={{ left: `${(s.start / duration) * 100}%`, width: `${(s.duration / duration) * 100}%` }} title={`${s.id} · ${s.type} · ${s.duration.toFixed(1)}s`}>
                 <span>{s.id}</span>
               </div>
             ))}
@@ -121,6 +123,22 @@ export function Player({ renderer, duration, timings, format, playback, busy, tR
           {muted ? <MuteIcon /> : <SoundIcon />}
         </button>
       </div>
+      {onDirect && current >= 0 && (
+        <div className="player-direct small">
+          <span className="muted">Scene {current + 1} of {timings.length}</span>
+          <button
+            className="btn small"
+            disabled={!!busy || directBusy}
+            title="Pick the picture for this scene, mark where the camera goes and say how it should move"
+            onClick={() => {
+              setPlaying(false);
+              onDirect(timings[current].id, current);
+            }}
+          >
+            Direct this scene
+          </button>
+        </div>
+      )}
     </div>
   );
 }

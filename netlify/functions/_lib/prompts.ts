@@ -65,7 +65,14 @@ const MEDIA = `# Photos, clips and stock
 - Automatic stock ("stock:photo:<words>" or "stock:video:<words>" in a spec, fetched from Pexels) works only when the context says Pexels stock is on. Use at most 5 per answer, and prefer the team's own media.
 - For an illustration or a scene no photo can show, you may request an AI image: "generate:<a precise prompt describing subject, setting, light, style>". At most 2 per answer. Never generate pictures of real, named people, logos, documents with readable text, or anything that could be mistaken for a real customer.
 - People and places should look Nigerian when the context is Nigerian.
-- Documents the team attaches (Word, PDF or text: briefs, notes, articles) are source material to read. Use their facts and wording; never use a document id as media.`;
+- Documents the team attaches (Word, PDF or text: briefs, notes, articles) are source material to read. Use their facts and wording; never use a document id as media.
+
+# The team's direction for a scene
+A script scene (or a message like "Rework scene 3 only") can carry the team's own direction: the pictures they picked (media, in order), camera marks they drew on a picture (focus: {asset, x, y, w, h, label} in 0..1 fractions of that picture, in visiting order) and how it should move (motion). Follow it exactly:
+- Use exactly the pictures they picked, in their order. A screenshot with camera marks goes in the screenshot template (or split/media when the direction says so).
+- Turn camera marks into the screenshot template's focus regions with the same x, y, w, h and labels, in the same order: the first at about 1.3s, then 1.5–2.2s apart, and make the scene long enough to visit them all. Add a cursor click on a mark when the direction mentions clicking.
+- Pick the template and props that produce the movement they describe (tilt, motion, frame, cursor, focus, collage, split, kinetic, transitions). If no template prop can do it, use the custom template for that scene and animate the picture with api.drawMedia(id, x, y, w, h, {zoom, focusX, focusY, radius}) driven by lib.spring/tween. If something they asked for still isn't possible, do the closest and say what differs in your reply.
+- When asked to rework one scene, change only that scene (keep its id) and leave every other scene identical.`;
 
 const SCREENS = `# Screenshots, recordings and the camera
 - You can see uploaded screenshots (and a poster frame of each clip). Focus and cursor coordinates are fractions of the image (0..1) from its top-left corner. Box the exact UI element you mean (a card, a button, a table row, a chart), with a little padding.
@@ -138,6 +145,7 @@ The team shares a core idea and context (and sometimes a sample to replicate, a 
 - Plan for the platform: 15–35s for Reels/TikTok, 30–60s for LinkedIn/YouTube, unless they give a length. Scene seconds must add up to roughly the target length.
 - Voiceover lines are spoken English for a Nigerian audience: short sentences, natural rhythm, about 2.5 words per second of scene time. If the team wants no voiceover, leave vo empty and let on-screen text carry the story.
 - On-screen text: headlines up to ~10 words in Title Case, supporting lines in sentence case. Never the same words as the voiceover line; they work together.
+- Animation (motion): one or two plain sentences on how the scene moves: how it enters, what the camera does, what changes on screen, how it hands over to the next scene. Be specific and varied across scenes ("the dashboard rises in with a slight tilt, then the camera dives to the VAT total"), never "fade in". When the team has written a scene's animation, or picked its pictures or drawn camera marks (focus), that is their direction: keep it exactly as they wrote it unless they ask you to change it. Describe places on a picture in words ("the VAT card", "the File return button"), never as coordinates.
 - Visual: name the template idea and the media plainly ("Kinetic type: Meet → Martina", "Screenshot of the dashboard, zoom to VAT payable", "Notifications arriving: VAT due, return filed", "Envato clip: market traders in Lagos"). List uploaded asset ids, envato: requests or generate: requests in media.
 - Your reply is 1–3 short plain sentences. No headings, no bullet lists, no exclamation marks.
 
@@ -215,8 +223,14 @@ export const SCRIPT_TOOL = {
                 vo: { type: "string" },
                 onScreen: { type: "string" },
                 visual: { type: "string" },
+                motion: { type: "string", description: "How the scene moves, in one or two plain sentences. Keep the team's words when they wrote it." },
                 seconds: { type: "number" },
                 media: { type: "array", items: { type: "string" } },
+                focus: {
+                  type: "array",
+                  description: "Camera marks the team drew on a picture. Copy them unchanged.",
+                  items: { type: "object", properties: { asset: { type: "string" }, x: { type: "number" }, y: { type: "number" }, w: { type: "number" }, h: { type: "number" }, label: { type: "string" } }, required: ["asset", "x", "y", "w", "h"] },
+                },
               },
               required: ["id", "vo", "onScreen", "visual", "seconds"],
             },

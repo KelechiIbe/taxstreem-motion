@@ -15,6 +15,7 @@ export function ScriptEditor(p: {
   onApprove: (s: Script) => void;
   onVoiceover: (text: string, direction?: string) => void;
   onFindEnvato: (sceneId: string, request: string) => void;
+  onDirect: (sceneId: string) => void;
 }) {
   const [draft, setDraft] = useState<Script | null>(p.script);
   const [saved, setSaved] = useState(true);
@@ -166,6 +167,10 @@ export function ScriptEditor(p: {
                   <span>Visual</span>
                   <textarea rows={2} value={s.visual} onChange={(e) => setScene(i, { visual: e.target.value })} />
                 </label>
+                <label className="field wide">
+                  <span>Animation</span>
+                  <textarea rows={2} value={s.motion ?? ""} placeholder="How it should move: e.g. slides in from the right, zooms to the VAT total, a cursor clicks File" onChange={(e) => setScene(i, { motion: e.target.value })} />
+                </label>
               </div>
               <div className="row wrap small">
                 <span className="muted">Media:</span>
@@ -187,14 +192,10 @@ export function ScriptEditor(p: {
                     </span>
                   );
                 })}
-                {media.length > 0 && (
-                  <select value="" onChange={(e) => e.target.value && setScene(i, { media: [...(s.media ?? []), e.target.value] })}>
-                    <option value="">+ add</option>
-                    {media.map((a) => (
-                      <option key={a.id} value={a.id}>{a.kind === "video" ? "Clip" : "Image"}: {a.name}</option>
-                    ))}
-                  </select>
-                )}
+                {(s.focus ?? []).length > 0 && <span className="muted">{s.focus!.length} camera mark{s.focus!.length > 1 ? "s" : ""}</span>}
+                <button className="btn small" onClick={async () => { await flush(); p.onDirect(s.id); }} title="Pick the screenshots or photos for this scene, mark where the camera goes and say how it moves">
+                  {media.length ? "Pick pictures and direct" : "Direct this scene"}
+                </button>
               </div>
             </li>
           );

@@ -439,6 +439,8 @@ interface MediaDraw {
   k?: number;
   /** Media time override (defaults to mediaTime). */
   at?: number;
+  /** Explicit scale on top of the fit (1 = fitted); overrides the zoom from motion. */
+  zoom?: number;
 }
 
 /** Draws an image or video frame into a box with a slow camera; a neutral placeholder if it's missing. */
@@ -478,7 +480,7 @@ function drawMedia(c: SceneCtx, ctx: Ctx, id: string | undefined, props: Record<
   const base = fit === "cover" ? Math.max(box.w / iw, box.h / ih) : Math.min(box.w / iw, box.h / ih);
   const k = clamp(o.k ?? 0);
   const mo = o.motion ?? "none";
-  const zoom = mo === "in" ? 1 + 0.12 * k : mo === "out" ? 1.12 - 0.12 * k : mo === "none" ? 1 : 1.1;
+  const zoom = o.zoom && o.zoom > 0 ? o.zoom : mo === "in" ? 1 + 0.12 * k : mo === "out" ? 1.12 - 0.12 * k : mo === "none" ? 1 : 1.1;
   const sc = base * zoom;
   const dw = iw * sc;
   const dh = ih * sc;
@@ -2132,13 +2134,42 @@ const custom: Template = (c) => {
   const { ctx, s, t, d, pal, theme, p } = c;
   ctx.save();
   try {
-    fn({ ctx, t, d, W: s.W, H: s.H, u: s.u, stage: s, palette: pal, theme, props: p, brand: D.BRAND, colors: D.activeColors(), look: D.activeLook(), lib: { clamp, lerp, ease, spring, sp, springSteps, tween, remap, formatNumber }, draw: D, image: c.image, media: c.media });
+    const drawMediaBox = (id: string, x: number, y: number, w: number, h: number, o: { fit?: "cover" | "contain"; at?: number; zoom?: number; focusX?: number; focusY?: number; radius?: number; motion?: string; k?: number } = {}) =>
+      drawMedia(c, ctx, id, {}, { x, y, w, h }, { fit: o.fit, at: o.at, r: o.radius, focus: { x: o.focusX, y: o.focusY }, motion: o.motion ?? "none", k: o.k, zoom: o.zoom });
+    fn({ ctx: forgiving(ctx), t, d, W: s.W, H: s.H, u: s.u, stage: s, palette: pal, theme, props: p, brand: D.BRAND, colors: D.activeColors(), look: D.activeLook(), lib: { clamp, lerp, ease, spring, sp, springSteps, tween, remap, formatNumber }, draw: D, image: c.image, media: c.media, mediaInfo: c.mediaInfo, drawMedia: drawMediaBox });
   } catch (e) {
     c.warn(`Scene "${c.scene.id}": custom code failed at ${t.toFixed(2)}s (${(e as Error).message}).`);
   }
   ctx.restore();
 };
 const customCache = new Map<string, (api: unknown) => void>();
+
+/** Custom code gets a context whose drawImage accepts a media frame object and skips pictures that haven't loaded. */
+const forgivingCache = new WeakMap<Ctx, Ctx>();
+function forgiving(ctx: Ctx): Ctx {
+  let f = forgivingCache.get(ctx);
+  if (!f) {
+    f = new Proxy(ctx, {
+      get(target, prop) {
+        if (prop === "drawImage") {
+          return (img: any, ...rest: number[]) => {
+            const src = img && typeof img === "object" && "source" in img ? img.source : img;
+            if (!src) return;
+            (target.drawImage as (...a: unknown[]) => void).call(target, src, ...rest);
+          };
+        }
+        const v = (target as any)[prop];
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+      set(target, prop, value) {
+        (target as any)[prop] = value;
+        return true;
+      },
+    });
+    forgivingCache.set(ctx, f);
+  }
+  return f;
+}
 
 export const TEMPLATES: Record<string, Template> = {
   title,

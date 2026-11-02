@@ -159,13 +159,28 @@ export function Chat(p: {
   );
 }
 
+/** Scene directions carry asset ids and box coordinates for Claude; people see file names and labels instead. */
+function readable(text: string, assets: Map<string, AssetRow>): string {
+  const name = (id: string) => assets.get(id)?.name ?? "a picture";
+  return text
+    .split("\n")
+    .map((line) => {
+      if (line.startsWith("Camera marks")) {
+        const marks = [...line.matchAll(/(\d+)\) on "([^"]+)"[^;]*?(?:label "([^"]*)")?(?:;|\.$)/g)].map((x) => `${x[1]}) ${x[3] || name(x[2])}`);
+        return marks.length ? `Camera marks: ${marks.join(", ")}` : line;
+      }
+      return line.replace(/"([0-9a-f]{8}-[0-9a-f-]{27})" \(([^)]+)\)/g, "$2").replace(/ \(id [^)]+\)/, "");
+    })
+    .join("\n");
+}
+
 function Message({ m, assets, onViewVersion, current }: { m: MessageRow; assets: Map<string, AssetRow>; onViewVersion: (n: number) => void; current: number }) {
   const [open, setOpen] = useState(false);
   const review = m.data?.review;
   return (
     <div className={`msg ${m.role}`}>
       {m.role === "user" && m.data?.by && <div className="by small muted">{m.data.by}</div>}
-      {m.content && <div className="txt">{m.content}</div>}
+      {m.content && <div className="txt">{m.role === "user" ? readable(m.content, assets) : m.content}</div>}
       {m.role === "user" && (m.data?.attachments ?? []).length > 0 && (
         <div className="chips">
           {(m.data.attachments as string[]).map((id) => (

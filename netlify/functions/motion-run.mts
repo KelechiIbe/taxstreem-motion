@@ -11,7 +11,7 @@ import { generateImage, importStock, pexelsSearch, storeAsset, youtubeLinks, you
 import { checkSpec } from "../../src/runtime/validate";
 import { mediaIds } from "../../src/runtime/audioplan";
 import { LOOK_BY_ID } from "../../src/runtime/looks";
-import type { Format, Script, ScriptScene, VideoSpec } from "../../src/runtime/types";
+import type { FocusMark, Format, Script, ScriptScene, VideoSpec } from "../../src/runtime/types";
 
 export const config: Config = { background: true };
 
@@ -107,7 +107,7 @@ export default async (req: Request) => {
         const out = await callTool<{ reply: string; script?: Script }>({ cred, system: SCRIPT_SYSTEM, messages, tool: SCRIPT_TOOL as any, maxTokens: 12000 });
         let saved = false;
         if (out.input.script) {
-          const clean = cleanScript(out.input.script, project.format);
+          const clean = cleanScript(out.input.script, project.format, project.script ?? null);
           await db.from("motion_projects").update({ script: clean, stage: "script", title: clean.title || project.title }).eq("id", project.id);
           saved = true;
         }
@@ -342,8 +342,20 @@ async function resolveMedia(db: SupabaseClient, spec: VideoSpec, project: any, t
 
 // ------------------------------------------------------------------ helpers
 
-function cleanScript(raw: any, format: Format): Script {
+function cleanFocus(raw: any): FocusMark[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const c = (n: any) => Math.min(1, Math.max(0, Number(n) || 0));
+  const out = raw
+    .filter((f: any) => f && typeof f.asset === "string")
+    .slice(0, 6)
+    .map((f: any) => ({ asset: String(f.asset).slice(0, 64), x: c(f.x), y: c(f.y), w: c(f.w), h: c(f.h), ...(f.label ? { label: String(f.label).slice(0, 40) } : {}) }))
+    .filter((f: FocusMark) => f.w > 0.005 && f.h > 0.005);
+  return out.length ? out : undefined;
+}
+
+function cleanScript(raw: any, format: Format, prev: Script | null): Script {
   const seen = new Set<string>();
+  const before = new Map((prev?.scenes ?? []).map((s) => [s.id, s]));
   const scenes: ScriptScene[] = (Array.isArray(raw?.scenes) ? raw.scenes : []).slice(0, 24).map((s: any, i: number) => {
     let id = String(s?.id || `s${i + 1}`).replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 40);
     while (seen.has(id)) id += "-b";
@@ -355,6 +367,9 @@ function cleanScript(raw: any, format: Format): Script {
       visual: String(s?.visual ?? "").slice(0, 500),
       seconds: Math.min(30, Math.max(0.8, Math.round((Number(s?.seconds) || 3) * 10) / 10)),
       media: Array.isArray(s?.media) ? s.media.map(String).slice(0, 5) : [],
+      // the team's own direction survives a rewrite even if Claude leaves it out
+      motion: String(s?.motion ?? "").slice(0, 600) || before.get(id)?.motion || undefined,
+      focus: cleanFocus(s?.focus) ?? before.get(id)?.focus,
     };
   });
   const formats: Format[] = ["9:16", "1:1", "16:9"];
