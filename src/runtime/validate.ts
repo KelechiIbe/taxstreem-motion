@@ -8,7 +8,7 @@ import type { Format, PaletteSpec, SceneSpec, Theme, VideoSpec } from "./types";
 const FORMATS: Format[] = ["9:16", "1:1", "16:9"];
 const THEMES: Theme[] = ["light", "dark", "blue"];
 const TEMPLATE_NAMES = new Set(CATALOG.map((c) => c.name));
-const UI_KINDS = ["button", "prompt", "notifications", "picker", "toggles", "payment", "chat"];
+const UI_KINDS = ["button", "prompt", "notifications", "picker", "toggles", "payment", "chat", "status", "success"];
 const HEX = /^#?[0-9a-f]{6}$/i;
 const icon = (v: unknown, fallback = "circle-check") => (ICON_NAMES.includes(String(v)) ? String(v) : fallback);
 
@@ -64,6 +64,12 @@ export function checkSpec(input: unknown, ctx: { imageIds: Set<string>; audioIds
     }
     if (type === "media" || type === "split") checkMedia(id, props.media ?? props.video ?? props.image, "props.media");
     if (type === "kinetic" && props.media) checkMedia(id, props.media, "props.media");
+    if ((type === "sentence") && props.media) checkMedia(id, props.media, "props.media");
+    if (type === "doc" && props.image) checkMedia(id, props.image, "props.image", false);
+    if (type === "hero" && (props.image ?? props.media)) checkMedia(id, props.image ?? props.media, "props.image", false);
+    if (type === "wall" && Array.isArray(props.items)) props.items.forEach((it: any, k: number) => checkMedia(id, typeof it === "string" ? it : it?.media ?? it?.image, `items[${k}]`, false));
+    if (type === "sentence" && !(Array.isArray(props.lines) ? props.lines.length : String(props.text ?? "").trim())) errors.push(`Scene "${id}" (sentence) needs props.lines.`);
+    if (type === "verbs" && !(Array.isArray(props.items) && props.items.length)) errors.push(`Scene "${id}" (verbs) needs props.items.`);
     if (type === "collage") {
       const items = Array.isArray(props.items) ? props.items.slice(0, 5) : [];
       if (!items.length) errors.push(`Scene "${id}" (collage) needs props.items with 1-5 media ids.`);

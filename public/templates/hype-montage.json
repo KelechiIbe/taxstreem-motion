@@ -1,0 +1,183 @@
+{
+ "version": 1,
+ "title": "Hype Montage sample",
+ "format": "16:9",
+ "look": "editorial",
+ "theme": "dark",
+ "assets": {
+  "p-night": "/templates/img/lagos-night.jpg",
+  "p-market": "/templates/img/market.jpg",
+  "p-naira": "/templates/img/naira.jpg",
+  "p-office": "/templates/img/office.jpg",
+  "p-pharmacy": "/templates/img/pharmacy.jpg",
+  "p-shop": "/templates/img/shop.jpg",
+  "p-skyline": "/templates/img/skyline.jpg",
+  "p-speed": "/templates/img/speed.jpg"
+ },
+ "scenes": [
+  {
+   "id": "m1",
+   "type": "media",
+   "duration": 1.4,
+   "props": {
+    "media": "p-night",
+    "grade": "mono",
+    "headline": "The fastest businesses",
+    "highlight": [
+     "fastest"
+    ],
+    "position": "center",
+    "overlay": "dark"
+   }
+  },
+  {
+   "id": "m2",
+   "type": "media",
+   "duration": 1.1,
+   "props": {
+    "media": "p-speed",
+    "grade": "mono",
+    "headline": "don't wait.",
+    "highlight": [
+     "wait."
+    ],
+    "position": "center",
+    "overlay": "dark"
+   },
+   "transition": "cut"
+  },
+  {
+   "id": "m3",
+   "type": "media",
+   "duration": 1.1,
+   "props": {
+    "media": "p-market",
+    "grade": "mono",
+    "headline": "They move.",
+    "highlight": [
+     "move."
+    ],
+    "position": "center",
+    "overlay": "dark"
+   },
+   "transition": "cut"
+  },
+  {
+   "id": "m4",
+   "type": "media",
+   "duration": 1.1,
+   "props": {
+    "media": "p-skyline",
+    "grade": "mono",
+    "headline": "They grow.",
+    "highlight": [
+     "grow."
+    ],
+    "position": "center",
+    "overlay": "dark"
+   },
+   "transition": "cut"
+  },
+  {
+   "id": "m5",
+   "type": "media",
+   "duration": 1.2,
+   "props": {
+    "media": "p-naira",
+    "grade": "mono",
+    "headline": "They pay on time.",
+    "highlight": [
+     "time."
+    ],
+    "position": "center",
+    "overlay": "dark"
+   },
+   "transition": "cut"
+  },
+  {
+   "id": "brand",
+   "type": "title",
+   "duration": 2.2,
+   "props": {
+    "logo": true,
+    "headline": "TaxStreem"
+   },
+   "theme": "blue",
+   "transition": "mark"
+  },
+  {
+   "id": "b1",
+   "type": "media",
+   "duration": 1.1,
+   "props": {
+    "media": "p-office",
+    "grade": "mono",
+    "headline": "Instant.",
+    "highlight": [
+     "Instant."
+    ],
+    "position": "center",
+    "overlay": "dark"
+   },
+   "transition": "cut"
+  },
+  {
+   "id": "b2",
+   "type": "media",
+   "duration": 1.1,
+   "props": {
+    "media": "p-shop",
+    "grade": "mono",
+    "headline": "Accurate.",
+    "highlight": [
+     "Accurate."
+    ],
+    "position": "center",
+    "overlay": "dark"
+   },
+   "transition": "cut"
+  },
+  {
+   "id": "b3",
+   "type": "media",
+   "duration": 1.1,
+   "props": {
+    "media": "p-pharmacy",
+    "grade": "mono",
+    "headline": "On time.",
+    "highlight": [
+     "time."
+    ],
+    "position": "center",
+    "overlay": "dark"
+   },
+   "transition": "cut"
+  },
+  {
+   "id": "line",
+   "type": "sentence",
+   "duration": 2.8,
+   "props": {
+    "mode": "build",
+    "size": "l",
+    "lines": [
+     "All the power. *Zero friction.*"
+    ]
+   },
+   "transition": "cut"
+  },
+  {
+   "id": "end",
+   "type": "cta",
+   "duration": 3,
+   "props": {
+    "headline": "Taxes At The Speed Of Business",
+    "highlight": [
+     "Speed"
+    ],
+    "cta": "Start free"
+   },
+   "transition": "star"
+  }
+ ]
+}

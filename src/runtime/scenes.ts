@@ -4,7 +4,7 @@
 
 import * as D from "./draw";
 import { type Ctx, type LaidWord, type Palette, type Stage, type TextLayout } from "./draw";
-import { clamp, ease, formatNumber, lerp, remap, spring, springSteps, tween } from "./lib";
+import { clamp, ease, formatNumber, lerp, remap, rng, spring, springSteps, tween } from "./lib";
 import type { Entry } from "./looks";
 import type { SceneSpec, Theme } from "./types";
 
@@ -490,10 +490,21 @@ function drawMedia(c: SceneCtx, ctx: Ctx, id: string | undefined, props: Record<
   if (mo === "right") fx = lerp(0.2, 0.8, k);
   if (mo === "up") fy = lerp(0.8, 0.2, k);
   if (mo === "down") fy = lerp(0.2, 0.8, k);
+  const grade = GRADES[str(props.grade)];
+  if (grade) ctx.filter = grade;
   ctx.drawImage(m.source, box.x + (box.w - dw) * fx, box.y + (box.h - dh) * fy, dw, dh);
+  ctx.filter = "none";
   ctx.restore();
   return true;
 }
+
+/** Colour grades for footage and photos (props.grade): mono is the hype-montage look. */
+const GRADES: Record<string, string> = {
+  mono: "grayscale(1) contrast(1.18) brightness(0.8)",
+  dark: "brightness(0.68) saturate(0.9)",
+  warm: "sepia(0.22) saturate(1.12) brightness(0.96)",
+  cool: "saturate(0.82) hue-rotate(-8deg) brightness(0.92)",
+};
 
 interface Focus { x: number; y: number; w: number; h: number; at: number; label?: string; spotlight?: boolean; zoom?: number }
 interface CursorPt { x: number; y: number; at: number; click?: boolean }
@@ -611,9 +622,15 @@ const screenshot: Template = (c) => {
         const v = key === "z" ? zf : key === "cx" ? clampC(f.x + f.w / 2, screen.w / (bw * zf)) : clampC(f.y + f.h / 2, screen.h / (bh * zf));
         return { at: f.at, to: v };
       });
-    const cx = springSteps(t, rest.cx, steps("cx"), 1.1 * M().settle);
-    const cy = springSteps(t, rest.cy, steps("cy"), 1.1 * M().settle);
-    const z = springSteps(t, 1, steps("z"), 1.1 * M().settle);
+    // macro: open right on one detail of the screen, then pull back to the whole thing (v04, v07)
+    const mac = p.macro && typeof p.macro === "object" ? { x: clamp(+p.macro.x), y: clamp(+p.macro.y), w: clamp(+p.macro.w || 0.2, 0.02, 1), h: clamp(+p.macro.h || 0.12, 0.02, 1) } : null;
+    const macOut = mac ? (Number.isFinite(+p.macro.out) ? +p.macro.out : 1.1) : 0;
+    const macZ = mac ? clamp(Math.min((0.9 * screen.w) / (mac.w * bw), (0.9 * screen.h) / (mac.h * bh)), 1.5, 5) : 1;
+    const macStart = mac ? { cx: clampC(mac.x + mac.w / 2, screen.w / (bw * macZ)), cy: clampC(mac.y + mac.h / 2, screen.h / (bh * macZ)) } : rest;
+    const withMac = (key: "cx" | "cy" | "z") => (mac ? [{ at: macOut, to: key === "z" ? 1 : rest[key] }, ...steps(key).filter((q) => q.at > macOut)] : steps(key));
+    const cx = springSteps(t, macStart.cx, withMac("cx"), 1.1 * M().settle);
+    const cy = springSteps(t, macStart.cy, withMac("cy"), 1.1 * M().settle);
+    const z = springSteps(t, macZ, withMac("z"), 1.1 * M().settle);
     const dw = bw * z;
     const dh = bh * z;
     const dx = screen.x + screen.w / 2 - cx * dw;
@@ -1675,6 +1692,200 @@ interface UIKind {
 const glassy = () => D.activeLook().surface === "glass";
 
 const UI_KINDS: Record<string, UIKind> = {
+  status: {
+    // rows land one by one, each spinner resolves into a tick (iBanPay approvers, Numtera terminal)
+    height: (c) => (Math.min(6, Math.max(1, arr(c.p.items).length)) * (c.s.portrait ? 120 : c.s.landscape ? 128 : 112) + (c.p.heading ? 90 : 30)) * c.s.u,
+    draw(c, box, start) {
+      const { ctx, s, p, pal, t } = c;
+      const u = s.u;
+      const items = arr<any>(p.items).slice(0, 6).map((x) => (typeof x === "string" ? { text: x } : { text: str(x?.text), sub: x?.sub, icon: x?.icon }));
+      const term = p.style === "terminal";
+      const rh = (s.portrait ? 120 : s.landscape ? 128 : 112) * u;
+      const head = p.heading ? 90 * u : 30 * u;
+      const q = sp(t - start, 0.8);
+      if (q <= 0.001) return;
+      const every = Number.isFinite(+p.every) ? +p.every : 0.55;
+      const accent = D.solid(pal.accent);
+      const ok = "#22C55E";
+      ctx.save();
+      ctx.globalAlpha *= clamp(q * 1.4);
+      ctx.translate(0, (1 - q) * 40 * u);
+      D.card(ctx, box.x, box.y, box.w, box.h, 30 * u, term ? "#0B1220" : pal.card, u, { elevation: 1.1, border: term ? "rgba(255,255,255,0.08)" : pal.cardBorder });
+      const fg = term ? "#E6EDF7" : pal.cardFg;
+      const muted = term ? "#7C8BA5" : pal.cardMuted;
+      if (p.heading) {
+        D.text(ctx, str(p.heading), box.x + 40 * u, box.y + 58 * u, 30 * u, 600, muted, "left", 0.02, "head");
+        if (p.right) D.text(ctx, str(p.right), box.x + box.w - 40 * u, box.y + 58 * u, 30 * u, 600, muted, "right", 0.02, "head");
+      }
+      items.forEach((it, i) => {
+        const at = start + 0.45 + i * every;
+        const rq = sp(t - at, 0.5);
+        if (rq <= 0.001) return;
+        const done = clamp((t - at - Math.max(0.45, every * 0.8)) / 0.25);
+        const y = box.y + head + i * rh;
+        ctx.save();
+        ctx.globalAlpha *= clamp(rq * 1.5);
+        ctx.translate(0, (1 - rq) * 24 * u);
+        if (i > 0 || p.heading) {
+          ctx.fillStyle = term ? "rgba(255,255,255,0.06)" : pal.faint;
+          ctx.fillRect(box.x + 36 * u, y, box.w - 72 * u, Math.max(1, 1.5 * u));
+        }
+        const ts = (term ? 28 : s.landscape ? 38 : 33) * u;
+        let x = box.x + 40 * u;
+        if (it.icon && !term) {
+          D.icon(ctx, D.hasIcon(it.icon) ? it.icon : "file-text", x, y + rh / 2 - ts * 0.6, ts * 1.2, accent, 1, 2);
+          x += ts * 1.8;
+        }
+        if (term) D.text(ctx, `${done >= 1 ? "✓" : ">"} ${it.text}`, x, y + rh / 2 + ts * 0.36, ts, 500, done >= 1 ? fg : muted, "left", 0, "mono");
+        else {
+          D.text(ctx, it.text, x, y + rh / 2 + (it.sub ? -ts * 0.15 : ts * 0.36), ts, 600, fg, "left", -0.01, "head");
+          if (it.sub) D.text(ctx, str(it.sub), x, y + rh / 2 + ts * 1.05, ts * 0.78, 400, muted);
+        }
+        // spinner → tick
+        const r = rh * 0.17;
+        const cx = box.x + box.w - 40 * u - r;
+        const cyy = y + rh / 2;
+        ctx.lineWidth = Math.max(2, 4 * u);
+        ctx.lineCap = "round";
+        if (done < 1) {
+          ctx.save();
+          ctx.globalAlpha *= 1 - done;
+          ctx.strokeStyle = term ? "#7C8BA5" : accent;
+          ctx.beginPath();
+          ctx.arc(cx, cyy, r, t * 7, t * 7 + Math.PI * 1.4);
+          ctx.stroke();
+          ctx.restore();
+        }
+        if (done > 0) {
+          ctx.save();
+          ctx.globalAlpha *= done;
+          ctx.fillStyle = ok;
+          ctx.beginPath();
+          ctx.arc(cx, cyy, r * (0.8 + 0.2 * done), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = "#FFFFFF";
+          ctx.beginPath();
+          ctx.moveTo(cx - r * 0.45, cyy + r * 0.02);
+          ctx.lineTo(cx - r * 0.1, cyy + r * 0.38);
+          ctx.lineTo(cx + r * 0.5, cyy - r * 0.35);
+          ctx.stroke();
+          ctx.restore();
+        }
+        ctx.restore();
+      });
+      ctx.restore();
+    },
+  },
+  success: {
+    // a button is pressed, turns into a pill, shrinks into a ring that fills, and a tick draws (iBanPay)
+    height: (c) => (c.s.portrait ? 640 : 440) * c.s.u,
+    draw(c, box, start) {
+      const { ctx, s, p, pal, t } = c;
+      const u = s.u;
+      const label = str(p.label, "File return");
+      const doneText = str(p.done, "Return filed");
+      const busyText = str(p.busy, "Filing…");
+      const accent = D.solid(pal.accent);
+      const ok = "#22C55E";
+      const bh = (s.portrait ? 168 : s.landscape ? 150 : 130) * u;
+      const ts = bh * 0.32;
+      const bw0 = D.measure(ctx, label, ts, 600, -0.01, "head") + bh * 1.4;
+      const bw1 = Math.max(bw0, D.measure(ctx, busyText, ts, 600, -0.01, "head") + bh * 1.4);
+      const cx = box.x + box.w / 2;
+      const cy = box.y + bh * 1.2;
+      const enter = sp(t - start, 0.6);
+      if (enter <= 0.001) return;
+      const clickAt = start + (Number.isFinite(+p.at) ? +p.at : 0.9);
+      const press = t > clickAt && t < clickAt + 0.25 ? Math.sin(((t - clickAt) / 0.25) * Math.PI) : 0;
+      const toBusy = ease.inOutCubic(clamp((t - clickAt - 0.15) / 0.35));
+      const toRing = ease.inOutCubic(clamp((t - clickAt - 0.95) / 0.45));
+      const fill = ease.inOutCubic(clamp((t - clickAt - 1.3) / 0.9));
+      const tick = ease.outCubic(clamp((t - clickAt - 2.15) / 0.4));
+      const w = lerp(lerp(bw0, bw1, toBusy), bh, toRing);
+      const h = bh;
+      ctx.save();
+      ctx.globalAlpha *= clamp(enter * 1.5);
+      const sc = (0.85 + 0.15 * enter) * (1 - press * 0.06);
+      ctx.translate(cx, cy);
+      ctx.scale(sc, sc);
+      ctx.translate(-cx, -cy);
+      // glow
+      ctx.save();
+      ctx.shadowColor = toRing > 0 ? (tick > 0 ? ok : accent) : accent;
+      ctx.shadowBlur = (30 + 30 * toBusy) * u;
+      D.rrect(ctx, cx - w / 2, cy - h / 2, w, h, h / 2);
+      ctx.fillStyle = D.paint(ctx, pal.accent, cx - w / 2, cy, cx + w / 2, cy);
+      ctx.globalAlpha *= 1 - toRing;
+      ctx.fill();
+      ctx.restore();
+      if (toRing < 0.6) {
+        ctx.save();
+        ctx.globalAlpha *= 1 - clamp(toRing / 0.4);
+        const txt = toBusy > 0.5 ? busyText : label;
+        const a = toBusy > 0.5 ? (toBusy - 0.5) * 2 : 1 - toBusy * 2;
+        ctx.globalAlpha *= clamp(a);
+        D.text(ctx, txt, cx, cy + ts * 0.36, ts, 600, pal.onAccent, "center", -0.01, "head");
+        // shimmer while busy
+        if (toBusy > 0.5) {
+          const sx = cx - w / 2 + ((t * 1.6) % 1) * w;
+          const g = ctx.createLinearGradient(sx - 60 * u, 0, sx + 60 * u, 0);
+          g.addColorStop(0, "rgba(255,255,255,0)");
+          g.addColorStop(0.5, "rgba(255,255,255,0.35)");
+          g.addColorStop(1, "rgba(255,255,255,0)");
+          ctx.fillStyle = g;
+          D.rrect(ctx, cx - w / 2, cy - h / 2, w, h, h / 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+      if (toRing > 0) {
+        const r = h / 2;
+        ctx.lineWidth = Math.max(3, 9 * u);
+        ctx.lineCap = "round";
+        ctx.strokeStyle = pal.subtle;
+        ctx.globalAlpha *= clamp(toRing * 1.5);
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = fill >= 1 ? ok : accent;
+        ctx.beginPath();
+        const a0 = -Math.PI / 2 + (fill < 1 ? t * 2 : 0);
+        ctx.arc(cx, cy, r, a0, a0 + Math.max(0.3, fill * Math.PI * 2));
+        ctx.stroke();
+        if (tick > 0) {
+          ctx.strokeStyle = ok;
+          ctx.beginPath();
+          const pts: [number, number][] = [[cx - r * 0.38, cy + r * 0.02], [cx - r * 0.08, cy + r * 0.32], [cx + r * 0.42, cy - r * 0.3]];
+          const len1 = Math.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]);
+          const len2 = Math.hypot(pts[2][0] - pts[1][0], pts[2][1] - pts[1][1]);
+          const L = (len1 + len2) * tick;
+          ctx.moveTo(pts[0][0], pts[0][1]);
+          if (L <= len1) ctx.lineTo(lerp(pts[0][0], pts[1][0], L / len1), lerp(pts[0][1], pts[1][1], L / len1));
+          else {
+            ctx.lineTo(pts[1][0], pts[1][1]);
+            ctx.lineTo(lerp(pts[1][0], pts[2][0], (L - len1) / len2), lerp(pts[1][1], pts[2][1], (L - len1) / len2));
+          }
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+      // cursor clicks the button
+      if (t < clickAt + 0.5) {
+        const cq = ease.inOutCubic(clamp((t - (clickAt - 0.85)) / 0.85));
+        D.cursor(ctx, lerp(cx + bw0 * 0.9, cx + bw0 * 0.18, cq), lerp(cy + bh * 1.6, cy + bh * 0.15, cq), 64 * u, clamp((t - (clickAt - 0.9)) * 4) * (1 - clamp((t - clickAt - 0.25) * 4)), "hand");
+      }
+      // result line and a small pill under it
+      const rq = sp(t - clickAt - 2.35, 0.55);
+      if (rq > 0.01) {
+        ctx.save();
+        ctx.globalAlpha *= clamp(rq * 1.5);
+        const ry = cy + bh * 0.95 + (1 - rq) * 24 * u;
+        D.text(ctx, doneText, cx, ry + ts * 1.2, ts * 1.15, 600, pal.fg, "center", -0.02, "head");
+        if (p.sub) D.pill(ctx, cx, ry + ts * 2.1, 50 * u, str(p.sub), pal.pillFill, pal.pillFg, { align: "center", chevron: false, u });
+        ctx.restore();
+      }
+    },
+  },
   button: {
     height: (c) => (c.s.portrait ? 170 : 150) * c.s.u,
     draw(c, box, start) {
@@ -2171,7 +2382,1269 @@ function forgiving(ctx: Ctx): Ctx {
   return f;
 }
 
+
+// ---------------------------------------------------------------- the 2026 sample study: sentences, verbs, documents, walls, heroes
+// Moves taken from the reference launch videos (Modus, Google Vids, iBanPay, Numtera, Gemini Canvas,
+// Apple Creator Studio, LemFi, ConversBank, LangEase, Lovio, Hyperliquid): type is the main actor,
+// the camera lives on details, states change in place, and beats grow out of each other.
+
+interface Tok {
+  kind: "word" | "icon" | "chip" | "image" | "logo";
+  text: string;
+  accent: boolean;
+}
+
+/** "Meet your {chip:+ New} *designer*." → tokens. *words* are the accent; {icon:name}, {chip:Label}, {image:assetId}, {logo}. */
+function toks(src: string, highlight: string[] = []): Tok[] {
+  const out: Tok[] = [];
+  const hl = new Set(highlight.map((h) => h.toLowerCase().replace(/[^\p{L}\p{N}₦%]+/gu, "")));
+  const re = /\{(icon|chip|image|logo)(?::([^}]*))?\}|\*([^*]+)\*|(\S+)/gu;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src))) {
+    if (m[1]) out.push({ kind: m[1] as Tok["kind"], text: (m[2] ?? "").trim(), accent: false });
+    else if (m[3]) for (const w of m[3].split(/\s+/).filter(Boolean)) out.push({ kind: "word", text: w, accent: true });
+    else {
+      const w = m[4];
+      const prev = out[out.length - 1];
+      // punctuation after an accent or an object sticks to it
+      if (/^[.,!?;:…)]+$/u.test(w) && prev && prev.kind === "word") prev.text += w;
+      else out.push({ kind: "word", text: w, accent: hl.has(w.toLowerCase().replace(/[^\p{L}\p{N}₦%]+/gu, "")) });
+    }
+  }
+  return out;
+}
+
+interface Placed extends Tok {
+  x: number;
+  w: number;
+  line: number;
+  i: number;
+}
+
+interface Block {
+  items: Placed[];
+  lines: { y: number; width: number; from: number; to: number }[];
+  size: number;
+  height: number;
+  role: D.Role;
+  weight: number;
+}
+
+const ROLE: D.Role = "display";
+
+function tokWidth(c: SceneCtx, t: Tok, size: number, weight: number): number {
+  const { ctx } = c;
+  if (t.kind === "word") return D.measure(ctx, t.text, size, weight, -0.02, ROLE);
+  if (t.kind === "icon") return size * 0.95;
+  if (t.kind === "logo") return D.markWidth(size * 0.82);
+  if (t.kind === "image") return size * 1.75;
+  const h = size * 0.82;
+  return h * 1.45 + D.measure(ctx, t.text || "New", h * 0.46, 500, -0.01, D.activeLook().type.upper ? "head" : "body");
+}
+
+/** Lays tokens out in centred (or left) lines, shrinking until they fit. Positions are relative to each line's left edge. */
+function layBlock(c: SceneCtx, tk: Tok[], size: number, maxW: number, maxLines: number, weight = 500): Block {
+  let sz = size;
+  for (let tries = 0; tries < 14; tries++) {
+    const gap = sz * 0.26;
+    const items: Placed[] = [];
+    const lines: Block["lines"] = [];
+    let line = 0;
+    let x = 0;
+    let from = 0;
+    tk.forEach((t, i) => {
+      const w = tokWidth(c, t, sz, weight);
+      if (x > 0 && x + w > maxW) {
+        lines.push({ y: 0, width: x - gap, from, to: i });
+        line++;
+        x = 0;
+        from = i;
+      }
+      items.push({ ...t, x, w, line, i });
+      x += w + gap;
+    });
+    lines.push({ y: 0, width: Math.max(0, x - gap), from, to: tk.length });
+    const widest = Math.max(...lines.map((l) => l.width));
+    if ((lines.length <= maxLines && widest <= maxW) || tries === 13) {
+      const lh = sz * 1.12;
+      lines.forEach((l, k) => (l.y = k * lh + sz * 0.8));
+      return { items, lines, size: sz, height: lines.length * lh, role: ROLE, weight };
+    }
+    sz *= 0.9;
+  }
+  throw new Error("unreachable");
+}
+
+/** Draws one token at (x, baseline y). */
+function drawTok(c: SceneCtx, t: Tok, x: number, y: number, size: number, color: string, weight = 500) {
+  const { ctx, pal, s } = c;
+  const u = s.u;
+  if (t.kind === "word") {
+    D.text(ctx, t.text, x, y, size, weight, color, "left", -0.02, ROLE);
+  } else if (t.kind === "icon") {
+    D.icon(ctx, D.hasIcon(t.text) ? t.text : "sparkles", x, y - size * 0.78, size * 0.9, D.solid(pal.highlight === pal.fg ? pal.accent : pal.highlight), 1, 2);
+  } else if (t.kind === "logo") {
+    const h = size * 0.82;
+    D.mark(ctx, x, y - h * 0.86, h, D.brandColors() ? D.BRAND.primary : D.solid(pal.accent));
+  } else if (t.kind === "image") {
+    const w = size * 1.75;
+    const h = size * 0.98;
+    const box = { x, y: y - size * 0.82, w, h };
+    ctx.save();
+    ctx.shadowColor = "rgba(10,20,40,0.28)";
+    ctx.shadowBlur = 30 * u;
+    ctx.shadowOffsetY = 10 * u;
+    D.rrect(ctx, box.x, box.y, box.w, box.h, D.radius(size * 0.18));
+    ctx.fillStyle = pal.card;
+    ctx.fill();
+    ctx.restore();
+    drawMedia(c, ctx, t.text, {}, box, { r: D.radius(size * 0.18), motion: "in", k: 0.5 });
+  } else {
+    const h = size * 0.82;
+    const w = tokWidth(c, t, size, weight);
+    const yTop = y - size * 0.8;
+    ctx.save();
+    ctx.shadowColor = "rgba(10,20,40,0.18)";
+    ctx.shadowBlur = 24 * u;
+    ctx.shadowOffsetY = 6 * u;
+    D.rrect(ctx, x, yTop, w, h, (h / 2) * clamp(D.activeLook().radius * 1.6, 0.3, 1));
+    ctx.fillStyle = pal.card;
+    ctx.fill();
+    ctx.restore();
+    D.rrect(ctx, x, yTop, w, h, (h / 2) * clamp(D.activeLook().radius * 1.6, 0.3, 1));
+    ctx.strokeStyle = pal.cardBorder;
+    ctx.lineWidth = Math.max(1, 1.5 * u);
+    ctx.stroke();
+    D.text(ctx, t.text || "New", x + h * 0.72, yTop + h / 2 + h * 0.16, h * 0.46, 500, pal.cardFg, "left", -0.01, D.activeLook().type.upper ? "head" : "body");
+  }
+}
+
+/** Small four-point sparkle (the launch-video asterisk). */
+function sparkle(ctx: Ctx, x: number, y: number, r: number, color: string) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.beginPath();
+  for (let i = 0; i < 4; i++) {
+    const a = (i * Math.PI) / 2;
+    ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    ctx.lineTo(Math.cos(a + Math.PI / 4) * r * 0.22, Math.sin(a + Math.PI / 4) * r * 0.22);
+  }
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.restore();
+}
+
+function bracketGlyph(ctx: Ctx, x: number, yTop: number, h: number, dir: 1 | -1, color: string, lw: number) {
+  const arm = h * 0.18;
+  ctx.beginPath();
+  ctx.moveTo(x + dir * arm, yTop);
+  ctx.lineTo(x, yTop);
+  ctx.lineTo(x, yTop + h);
+  ctx.lineTo(x + dir * arm, yTop + h);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lw;
+  ctx.lineJoin = "miter";
+  ctx.stroke();
+}
+
+type SentenceMode = "build" | "type" | "scroll" | "dolly" | "assemble" | "brackets" | "select" | "rotate" | "stack";
+
+/**
+ * Kinetic sentences: the type-led beats of modern launch videos. One phrase per beat, landing word
+ * by word, with inline chips, icons, pictures and the logo living inside the line.
+ */
+const sentence: Template = (c) => {
+  const { ctx, s, p, t, d } = c;
+  const u = s.u;
+  const raw = Array.isArray(p.lines) ? p.lines : str(p.text).split(/\s*\/\s*|\n+/).filter(Boolean);
+  const beats: Beat[] = raw.slice(0, 10).map((x: any) => (typeof x === "string" ? { text: x } : { text: str(x?.text), at: x?.at, highlight: x?.highlight }));
+  if (!beats.length) return c.warn(`Scene "${c.scene.id}": sentence needs props.lines.`);
+  const mode: SentenceMode = (["build", "type", "scroll", "dolly", "assemble", "brackets", "select", "rotate", "stack"] as const).includes(p.mode) ? p.mode : "build";
+  const n = beats.length;
+  const span = Math.max(0.5, (d - 0.3) / n);
+  const ats = beats.map((b, i) => (b.at !== undefined && Number.isFinite(+b.at) ? +b.at : 0.15 + i * span));
+  const big = p.size === "m" ? 0.52 : p.size === "l" ? 0.74 : 1;
+  const size0 = (s.portrait ? 150 : s.landscape ? 150 : 128) * u * big * (mode === "dolly" ? 1.08 : 1);
+  const align: "left" | "center" = p.align === "left" ? "left" : "center";
+  if (p.media) {
+    drawMedia(c, ctx, p.media, p, { x: 0, y: 0, w: s.W, h: s.H }, { motion: "in", k: ease.smooth(t / Math.max(1, d)) });
+    scrim(ctx, s, p.overlay ?? "dark", "center");
+  }
+  const palT = p.media ? overlayPalette(c, p.overlay ?? "dark") : c.pal;
+  const cc: SceneCtx = { ...c, pal: palT };
+  const anyAccent = beats.some((b) => /\*[^*]+\*/.test(b.text) || b.highlight);
+  const col = headColors(cc, anyAccent);
+  const fg = col.color;
+  const acc = col.hl === col.color ? D.solid(palT.accent) : col.hl;
+  const tokFor = (b: Beat) => toks(b.text, b.highlight === true ? b.text.split(/\s+/) : Array.isArray(b.highlight) ? b.highlight : []);
+  const cy = s.safe.y + s.safe.h * (s.portrait ? 0.46 : 0.5);
+  const maxLines = mode === "scroll" ? 1 : s.portrait ? 4 : 3;
+  const seed = hashNum(c.scene.id);
+
+  // scroll: every phrase continues one line that slides left as words arrive (v05)
+  if (mode === "scroll") {
+    const all: Tok[] = beats.flatMap((b) => tokFor(b));
+    const idxBeat: number[] = [];
+    beats.forEach((b, bi) => tokFor(b).forEach(() => idxBeat.push(bi)));
+    const blk = layBlock(cc, all, size0 * (s.landscape ? 0.82 : 0.6), Infinity, 1);
+    const gap = blk.size * 0.26;
+    const local = idxBeat.map((bi, k) => k - idxBeat.indexOf(bi));
+    const q = blk.items.map((it, k) => sp(t - ats[idxBeat[k]] - local[k] * 0.11, 0.55));
+    const vis = blk.items.reduce((a, it, k) => a + (it.w + gap) * clamp(q[k] * 1.3), 0) - gap;
+    const right = Math.min(s.W / 2 + vis / 2, s.safe.x + s.safe.w * 0.94);
+    const x0 = right - vis;
+    const y = cy - blk.height / 2 + blk.size * 0.8;
+    let x = x0;
+    blk.items.forEach((it, k) => {
+      const qq = q[k];
+      if (qq <= 0.001) return;
+      const fadeL = clamp((x + it.w - s.safe.x * 0.4) / (s.safe.w * 0.22));
+      ctx.save();
+      ctx.globalAlpha *= clamp(qq * 1.5) * fadeL;
+      const b = (1 - clamp(qq)) * blk.size * 0.14;
+      if (b > 0.5) ctx.filter = `blur(${b.toFixed(1)}px)`;
+      drawTok(cc, it, x + (1 - qq) * blk.size * 0.6, y, blk.size, it.accent ? acc : fg);
+      ctx.restore();
+      x += (it.w + gap) * clamp(qq * 1.3);
+    });
+    return;
+  }
+
+  // stack: phrases land under each other and the block scrolls; older lines dim (lists, manifestos)
+  if (mode === "stack") {
+    const blocks = beats.map((b) => layBlock(cc, tokFor(b), size0 * (n > 4 ? 0.62 : 0.9), s.safe.w, 2));
+    const lh = blocks.map((b) => b.height + 16 * u);
+    const tops: number[] = [];
+    let acc2 = 0;
+    lh.forEach((h) => {
+      tops.push(acc2);
+      acc2 += h;
+    });
+    const view = s.safe.h * 0.86;
+    const scroll = springSteps(t, 0, blocks.map((_, i) => ({ at: ats[i], to: Math.max(0, tops[i] + lh[i] - view) })), 0.8 * M().settle);
+    const y0 = s.safe.y + Math.max(0, (s.safe.h - Math.min(acc2, view)) / 2) - scroll;
+    blocks.forEach((blk, i) => {
+      if (t < ats[i] - 0.05) return;
+      const dim = i < n - 1 && t > ats[i + 1] ? lerp(1, 0.5, clamp((t - ats[i + 1]) / 0.3)) : 1;
+      ctx.save();
+      ctx.globalAlpha *= dim;
+      wordsIn(cc, blk, align, y0 + tops[i], ats[i], fg, acc, 0.09);
+      ctx.restore();
+    });
+    return;
+  }
+
+  let i = 0;
+  for (let k = 0; k < n; k++) if (t >= ats[k] - 0.02) i = k;
+  const b = beats[i];
+  const tk = tokFor(b);
+  const next = i + 1 < n ? ats[i + 1] : Infinity;
+  const tau = t - ats[i];
+  const life = Math.max(0.4, (Number.isFinite(next) ? next : d) - ats[i]);
+  const squeezes = mode === "brackets" && (toks(b.text).some((x) => x.accent) || i === n - 1);
+  const outDur = squeezes ? 0.55 : 0.26;
+  const out = Number.isFinite(next) ? clamp((t - (next - outDur)) / outDur) : squeezes && p.squeeze ? clamp((t - (d - outDur)) / outDur) : 0;
+  const blk = layBlock(cc, tk, size0, s.safe.w, maxLines);
+  const top = cy - blk.height / 2;
+  const bracketed = mode === "brackets" && (tk.some((x) => x.accent) || i === n - 1);
+
+  ctx.save();
+  if (mode === "dolly") {
+    // the phrase lands big and keeps easing away from the camera (v02)
+    const k = lerp(1.16, 0.82, ease.smooth(clamp(tau / (life + 0.2))));
+    ctx.translate(s.W / 2, cy);
+    ctx.scale(k, k);
+    ctx.translate(-s.W / 2, -cy);
+  }
+  if (out > 0 && !squeezes && mode !== "assemble") {
+    ctx.globalAlpha *= 1 - out;
+    ctx.translate(mode === "dolly" ? 0 : 0, -out * blk.size * 0.3);
+    if (out > 0.05) ctx.filter = `blur(${(out * blk.size * 0.12).toFixed(1)}px)`;
+  }
+
+  if (mode === "type") {
+    // typewriter with a tall caret; objects pop in when the caret reaches them (v04, v05, v07)
+    const rate = 20 / Math.max(0.5, M().stagger);
+    let shown = Math.max(0, tau * rate);
+    let caret: { x: number; y: number } | null = null;
+    const lineX = (ln: number) => (align === "center" ? s.W / 2 - blk.lines[ln].width / 2 : s.safe.x);
+    for (const it of blk.items) {
+      if (shown <= 0) break;
+      const L = blk.lines[it.line];
+      const x = lineX(it.line) + it.x;
+      const y = top + L.y;
+      if (it.kind === "word") {
+        const nch = Math.min(it.text.length, Math.floor(shown));
+        if (nch > 0) {
+          D.text(ctx, it.text.slice(0, nch), x, y, blk.size, blk.weight, it.accent ? acc : fg, "left", -0.02, ROLE);
+          caret = { x: x + D.measure(ctx, it.text.slice(0, nch), blk.size, blk.weight, -0.02, ROLE), y };
+        }
+        shown -= it.text.length + 1;
+      } else {
+        const q = sp(shown / rate, 0.45, 0.15);
+        ctx.save();
+        ctx.translate(x + it.w / 2, y - blk.size * 0.35);
+        ctx.scale(0.5 + 0.5 * q, 0.5 + 0.5 * q);
+        ctx.translate(-(x + it.w / 2), -(y - blk.size * 0.35));
+        ctx.globalAlpha *= clamp(q * 1.5);
+        drawTok(cc, it, x, y, blk.size, fg);
+        ctx.restore();
+        caret = { x: x + it.w, y };
+        shown -= 2;
+      }
+    }
+    const total = tk.reduce((a, x) => a + (x.kind === "word" ? x.text.length + 1 : 2), 0) / rate;
+    if (caret && (tau < total || Math.floor((tau - total) * 2.2) % 2 === 0)) {
+      ctx.fillStyle = D.solid(acc);
+      ctx.fillRect(caret.x + blk.size * 0.06, caret.y - blk.size * 0.8, Math.max(2, blk.size * 0.06), blk.size * 0.98);
+    }
+    ctx.restore();
+    return;
+  }
+
+  if (mode === "assemble") {
+    // fragments fly in from scattered spots and click together; on exit they scatter again (v08)
+    const R = rng(seed + i * 977);
+    const frags: { t: Tok; x: number; y: number; w: number; sx: number; sy: number; ss: number; ex: number; ey: number; delay: number }[] = [];
+    for (const it of blk.items) {
+      const L = blk.lines[it.line];
+      const lx = (align === "center" ? s.W / 2 - L.width / 2 : s.safe.x) + it.x;
+      const y = top + L.y;
+      const parts = it.kind === "word" && it.text.length > 4 ? [it.text.slice(0, Math.ceil(it.text.length / 2)), it.text.slice(Math.ceil(it.text.length / 2))] : [it.text];
+      let px = lx;
+      for (const part of parts) {
+        const w = it.kind === "word" ? D.measure(ctx, part, blk.size, blk.weight, -0.02, ROLE) : it.w;
+        const a = R() * Math.PI * 2;
+        const r = (0.18 + R() * 0.3) * Math.min(s.W, s.H);
+        const a2 = R() * Math.PI * 2;
+        const r2 = (0.2 + R() * 0.32) * Math.min(s.W, s.H);
+        frags.push({ t: { ...it, text: part }, x: px, y, w, sx: Math.cos(a) * r, sy: Math.sin(a) * r, ss: 0.45 + R() * 1.0, ex: Math.cos(a2) * r2, ey: Math.sin(a2) * r2, delay: R() * 0.25 });
+        px += w;
+      }
+    }
+    for (const f of frags) {
+      const q = sp(tau - f.delay, 0.85);
+      const o = ease.inCubic(clamp((out - f.delay * 0.5) / 0.8));
+      if (q <= 0.001) continue;
+      const dx = f.sx * (1 - q) + f.ex * o;
+      const dy = f.sy * (1 - q) + f.ey * o;
+      const sc = lerp(f.ss, 1, q) * (1 - 0.4 * o);
+      ctx.save();
+      ctx.globalAlpha *= clamp(q * 1.6) * (1 - o);
+      ctx.translate(f.x + f.w / 2 + dx, f.y - blk.size * 0.35 + dy);
+      ctx.scale(sc, sc);
+      drawTok(cc, f.t, -f.w / 2, blk.size * 0.35, blk.size, f.t.accent ? acc : fg);
+      ctx.restore();
+    }
+    ctx.restore();
+    return;
+  }
+
+  // build / dolly / select / brackets / rotate: words land one at a time and the line re-centres
+  const st = Math.min(0.16, 0.95 / Math.max(1, tk.length)) * M().stagger * (mode === "dolly" ? 0.7 : 1);
+  const rotWords: string[] = mode === "rotate" ? arr(p.words).map(String).slice(0, 8) : [];
+  const lastWord = tk.length - 1;
+  // rotating last word: which word shows and the swap progress
+  let rot: { from: string; to: string; k: number } | null = null;
+  if (rotWords.length && tk[lastWord]?.kind === "word") {
+    const seq = [tk[lastWord].text, ...rotWords];
+    const t0 = 0.55 + tk.length * st;
+    const t1 = Math.max(t0 + 0.4, (Number.isFinite(next) ? next : d) - ats[i] - 0.25);
+    const each = (t1 - t0) / Math.max(1, seq.length - 1);
+    const j = clamp(Math.floor((tau - t0) / each), -1, seq.length - 2);
+    const k = j < 0 ? 0 : sp(tau - t0 - j * each, 0.42);
+    rot = j < 0 ? { from: seq[0], to: seq[0], k: 1 } : { from: seq[j], to: seq[j + 1], k };
+  }
+  const wOf = (it: Placed) => {
+    if (rot && it.i === lastWord) {
+      const wa = D.measure(ctx, rot.from, blk.size, blk.weight, -0.02, ROLE);
+      const wb = D.measure(ctx, rot.to, blk.size, blk.weight, -0.02, ROLE);
+      return lerp(wa, wb, rot.k);
+    }
+    return it.w;
+  };
+  const gap = blk.size * 0.26;
+  const qOf = blk.items.map((it) => sp(tau - it.i * st, 0.55));
+  const lineW = blk.lines.map((L) => blk.items.slice(L.from, L.to).reduce((a, it) => a + (wOf(it) + gap) * clamp(qOf[it.i] * 1.35), 0) - gap);
+  // selection sweep over the accent words (v07 "Different", v06 "Select it.")
+  const selStart = 0.45 + tk.length * st;
+  const accIdx = blk.items.filter((it) => it.accent).map((it) => it.i);
+  const pos: { x: number; y: number }[] = [];
+  blk.lines.forEach((L, ln) => {
+    let x = align === "center" ? s.W / 2 - lineW[ln] / 2 : s.safe.x;
+    for (const it of blk.items.slice(L.from, L.to)) {
+      pos[it.i] = { x, y: top + L.y };
+      x += (wOf(it) + gap) * clamp(qOf[it.i] * 1.35);
+    }
+  });
+  // brackets frame the phrase, then squeeze it to nothing (v07)
+  let clipL = -Infinity;
+  let clipR = Infinity;
+  if (bracketed) {
+    const widest = Math.max(...lineW);
+    const bq = sp(tau - 0.2, 0.6);
+    const sq = ease.inOutCubic(out);
+    const half = lerp(widest / 2 + blk.size * 1.4, widest / 2 + blk.size * 0.5, bq) * (1 - sq) + blk.size * 0.12 * sq;
+    clipL = s.W / 2 - half + blk.size * 0.12;
+    clipR = s.W / 2 + half - blk.size * 0.12;
+    const bh = blk.height + blk.size * 0.5;
+    const by = top - blk.size * 0.12;
+    ctx.save();
+    ctx.globalAlpha *= clamp(bq * 1.5) * (1 - clamp((out - 0.85) / 0.15));
+    bracketGlyph(ctx, s.W / 2 - half, by, bh, 1, D.solid(acc), Math.max(2, blk.size * 0.06));
+    bracketGlyph(ctx, s.W / 2 + half, by, bh, -1, D.solid(acc), Math.max(2, blk.size * 0.06));
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(clipL, 0, Math.max(0, clipR - clipL), s.H);
+    ctx.clip();
+  }
+  for (const it of blk.items) {
+    const q = qOf[it.i];
+    if (q <= 0.001) continue;
+    const { x, y } = pos[it.i];
+    let color = it.accent ? acc : fg;
+    ctx.save();
+    ctx.globalAlpha *= clamp(q * 1.5) * (it.accent || !col.dimAlpha ? 1 : col.dimAlpha);
+    const bl = (1 - clamp(q)) * blk.size * 0.16;
+    if (bl > 0.5) ctx.filter = `blur(${bl.toFixed(1)}px)`;
+    const dy = (1 - q) * blk.size * 0.32;
+    if (mode === "select" && it.accent) {
+      const k = accIdx.indexOf(it.i);
+      const sw = ease.outCubic(clamp((tau - selStart - k * 0.28) / 0.3));
+      color = sw > 0.5 ? palT.onAccent : fg;
+      if (sw > 0) {
+        const pad = blk.size * 0.08;
+        ctx.fillStyle = D.solid(acc);
+        ctx.fillRect(x - pad, y - blk.size * 0.86 + dy, (it.w + pad * 2) * sw, blk.size * 1.08);
+      }
+    }
+    if (rot && it.i === lastWord) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x - blk.size * 0.2, y - blk.size * 1.05, wOf(it) + blk.size * 0.6, blk.size * 1.4);
+      ctx.clip();
+      if (rot.k < 1) {
+        ctx.save();
+        ctx.globalAlpha *= 1 - rot.k;
+        D.text(ctx, rot.from, x, y - rot.k * blk.size * 0.7, blk.size, blk.weight, acc, "left", -0.02, ROLE);
+        ctx.restore();
+      }
+      ctx.globalAlpha *= clamp(rot.k * 1.4);
+      D.text(ctx, rot.to, x, y + (1 - rot.k) * blk.size * 0.7 + dy, blk.size, blk.weight, acc, "left", -0.02, ROLE);
+      ctx.restore();
+    } else {
+      const sc = 0.92 + 0.08 * clamp(q);
+      ctx.translate(x + it.w / 2, y - blk.size * 0.3);
+      ctx.scale(sc, sc);
+      ctx.translate(-(x + it.w / 2), -(y - blk.size * 0.3));
+      drawTok(cc, it, x, y + dy, blk.size, color);
+    }
+    ctx.restore();
+  }
+  if (bracketed) ctx.restore();
+  // sparkles twinkle by the accent words (v02)
+  if (p.sparkles) {
+    blk.items
+      .filter((it) => it.accent)
+      .slice(0, 2)
+      .forEach((it, k) => {
+        const q = sp(tau - it.i * st - 0.15, 0.6);
+        if (q <= 0.01) return;
+        const { x, y } = pos[it.i];
+        const tw = 0.75 + 0.25 * Math.sin(t * 5 + k * 2);
+        ctx.save();
+        ctx.globalAlpha *= clamp(q) * (1 - out);
+        sparkle(ctx, x + it.w + blk.size * 0.12, y - blk.size * 0.95 - (1 - q) * 20 * u, blk.size * 0.13 * tw, D.solid(acc));
+        sparkle(ctx, x - blk.size * 0.08, y + blk.size * 0.22, blk.size * 0.08 * (1.5 - tw), D.solid(acc));
+        ctx.restore();
+      });
+  }
+  ctx.restore();
+};
+
+/** Words of a block landing one by one (used by stack mode). */
+function wordsIn(c: SceneCtx, blk: Block, align: "left" | "center", top: number, start: number, fg: string, acc: string, st: number) {
+  const { ctx, s, t } = c;
+  const gap = blk.size * 0.26;
+  blk.lines.forEach((L) => {
+    let x = align === "center" ? s.W / 2 - L.width / 2 : s.safe.x;
+    for (const it of blk.items.slice(L.from, L.to)) {
+      const q = sp(t - start - it.i * st, 0.55);
+      if (q > 0.001) {
+        ctx.save();
+        ctx.globalAlpha *= clamp(q * 1.5);
+        const bl = (1 - clamp(q)) * blk.size * 0.14;
+        if (bl > 0.5) ctx.filter = `blur(${bl.toFixed(1)}px)`;
+        drawTok(c, it, x, top + L.y + (1 - q) * blk.size * 0.3, blk.size, it.accent ? acc : fg);
+        ctx.restore();
+      }
+      x += it.w + gap;
+    }
+  });
+}
+
+const hashNum = (s: string) => {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return h >>> 0;
+};
+
+type VerbEffect = "bounce" | "select" | "write" | "drop" | "scan" | "glow" | "glitch" | "stamp" | "strike" | "dissolve" | "type" | "count" | "slide";
+
+/**
+ * Type that acts out its verb (Apple Creator Studio): one short phrase per beat, each animated the
+ * way it means. "File it." stamps, "Track it." scans, "Relax." glows, "Scrap it." drops away.
+ */
+const verbs: Template = (c) => {
+  const { ctx, s, p, t, d, pal } = c;
+  const u = s.u;
+  const items = arr<any>(p.items)
+    .slice(0, 10)
+    .map((x) => (typeof x === "string" ? { text: x } : { text: str(x?.text), effect: x?.effect, at: x?.at, accent: x?.accent }));
+  if (!items.length) return c.warn(`Scene "${c.scene.id}": verbs needs props.items.`);
+  const n = items.length;
+  const span = Math.max(0.45, (d - 0.2) / n);
+  const ats = items.map((it, i) => (it.at !== undefined && Number.isFinite(+it.at) ? +it.at : 0.1 + i * span));
+  let i = 0;
+  for (let k = 0; k < n; k++) if (t >= ats[k] - 0.02) i = k;
+  const it = items[i];
+  const eff: VerbEffect = it.effect ?? (["stamp", "scan", "glow", "bounce", "select", "write"] as VerbEffect[])[i % 6];
+  const next = i + 1 < n ? ats[i + 1] : d + 1;
+  const tau = t - ats[i];
+  const life = Math.max(0.3, next - ats[i]);
+  const outK = next <= d ? clamp((t - (next - 0.16)) / 0.16) : 0;
+  const size0 = (s.portrait ? 150 : s.landscape ? 160 : 130) * u * (p.size === "l" ? 0.75 : 1);
+  const weight = 600;
+  const role: D.Role = "head";
+  const txt = D.upperFor(role) ? it.text.toUpperCase() : it.text;
+  let size = size0;
+  while (D.measure(ctx, txt, size, weight, -0.02, role) > s.safe.w && size > size0 * 0.45) size *= 0.92;
+  const width = D.measure(ctx, txt, size, weight, -0.02, role);
+  const x0 = s.W / 2 - width / 2;
+  const y = s.safe.y + s.safe.h * (s.portrait ? 0.48 : 0.52) + size * 0.32;
+  const accent = D.solid(pal.highlight === pal.fg ? pal.accent : pal.highlight);
+  const color = it.accent ? accent : pal.fg;
+  D.setFont(ctx, weight, size, -0.02, role);
+  const chars = [...txt];
+  const xs: number[] = [];
+  let acc = "";
+  for (const ch of chars) {
+    xs.push(x0 + ctx.measureText(acc).width);
+    acc += ch;
+  }
+  const R = rng(hashNum(c.scene.id) + i * 131);
+  const letter = (k: number, dx: number, dy: number, alpha: number, col: string, sc = 1, rot = 0) => {
+    if (alpha <= 0.002) return;
+    ctx.save();
+    ctx.globalAlpha *= alpha;
+    D.setFont(ctx, weight, size, -0.02, role);
+    ctx.fillStyle = D.paint(ctx, col, xs[k], y - size, xs[k] + size, y);
+    ctx.textBaseline = "alphabetic";
+    const cw = ctx.measureText(chars[k]).width;
+    ctx.translate(xs[k] + cw / 2 + dx, y - size * 0.35 + dy);
+    ctx.rotate(rot);
+    ctx.scale(sc, sc);
+    ctx.fillText(chars[k], -cw / 2, size * 0.35);
+    ctx.restore();
+  };
+  ctx.save();
+  if (outK > 0 && eff !== "dissolve" && eff !== "drop") {
+    ctx.globalAlpha *= 1 - outK;
+    if (outK > 0.1) ctx.filter = `blur(${(outK * size * 0.1).toFixed(1)}px)`;
+  }
+  switch (eff) {
+    case "bounce": {
+      // letters hop in on the beat
+      chars.forEach((_, k) => {
+        const q = spring(tau - k * 0.045, 0.5, 0.35);
+        letter(k, 0, -(1 - q) * size * 0.9 + Math.sin(clamp(tau - k * 0.045) * Math.PI) * -size * 0.12, clamp(q * 2), color);
+      });
+      break;
+    }
+    case "select": {
+      // a marquee is dragged across the word, which takes the accent
+      const q = ease.outCubic(clamp((tau - 0.15) / 0.45));
+      const pad = size * 0.14;
+      chars.forEach((_, k) => letter(k, 0, 0, 1, q > 0.98 ? accent : pal.fg));
+      if (tau > 0.1) {
+        ctx.save();
+        ctx.setLineDash([size * 0.08, size * 0.06]);
+        ctx.lineDashOffset = -t * size * 0.5;
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = Math.max(2, size * 0.025);
+        ctx.strokeRect(x0 - pad, y - size * 0.95, (width + pad * 2) * q, size * 1.25);
+        ctx.globalAlpha *= 0.14;
+        ctx.fillStyle = accent;
+        ctx.fillRect(x0 - pad, y - size * 0.95, (width + pad * 2) * q, size * 1.25);
+        ctx.restore();
+        D.cursor(ctx, x0 - pad + (width + pad * 2) * q, y + size * 0.3, size * 0.28, clamp(tau * 4) * (1 - clamp((tau - 0.9) * 3)), "arrow");
+      }
+      break;
+    }
+    case "write": {
+      // written left to right behind a moving pen point
+      const q = ease.inOutCubic(clamp(tau / Math.min(0.9, life * 0.7)));
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x0 - size * 0.2, y - size * 1.3, (width + size * 0.4) * q, size * 1.8);
+      ctx.clip();
+      chars.forEach((_, k) => letter(k, 0, 0, 1, color));
+      ctx.restore();
+      if (q < 1) {
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.arc(x0 + width * q, y - size * 0.3 + Math.sin(q * 30) * size * 0.08, size * 0.05, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    }
+    case "drop": {
+      // letters land from above, then fall away on exit
+      chars.forEach((_, k) => {
+        const q = spring(tau - k * 0.035, 0.45, 0.25);
+        const fall = ease.inCubic(clamp((t - (next - 0.3) - k * 0.02) / 0.3));
+        letter(k, 0, -(1 - q) * size * 1.4 + fall * size * 2.2, clamp(q * 2) * (1 - fall), color, 1, fall * (R() - 0.5) * 0.8);
+      });
+      break;
+    }
+    case "scan": {
+      // a scan line passes and leaves the word sharp and bright
+      const q = ease.inOutCubic(clamp((tau - 0.1) / 0.6));
+      const sx = x0 - size * 0.2 + (width + size * 0.4) * q;
+      ctx.save();
+      ctx.filter = `blur(${(size * 0.06).toFixed(1)}px)`;
+      ctx.beginPath();
+      ctx.rect(sx, 0, s.W, s.H);
+      ctx.clip();
+      chars.forEach((_, k) => letter(k, 0, 0, 0.35, pal.fg));
+      ctx.restore();
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, sx, s.H);
+      ctx.clip();
+      chars.forEach((_, k) => letter(k, 0, 0, 1, color));
+      ctx.restore();
+      if (q < 1) {
+        const g = ctx.createLinearGradient(sx - size * 0.3, 0, sx, 0);
+        g.addColorStop(0, "rgba(0,0,0,0)");
+        g.addColorStop(1, accent);
+        ctx.fillStyle = g;
+        ctx.globalAlpha *= 0.5;
+        ctx.fillRect(sx - size * 0.3, y - size * 1.05, size * 0.3, size * 1.4);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = accent;
+        ctx.fillRect(sx, y - size * 1.1, Math.max(2, size * 0.02), size * 1.5);
+      }
+      break;
+    }
+    case "glow": {
+      const q = sp(tau, 0.7);
+      ctx.save();
+      ctx.shadowColor = accent;
+      ctx.shadowBlur = size * (0.15 + 0.35 * q) * (0.85 + 0.15 * Math.sin(t * 4));
+      chars.forEach((_, k) => letter(k, 0, (1 - q) * size * 0.15, clamp(q * 1.4), color, 0.94 + 0.06 * q));
+      ctx.restore();
+      break;
+    }
+    case "glitch": {
+      // letters flicker through other glyphs and colours before they settle
+      const pool = "ABCDEFGHJKLMNPRSTUVWXYZ0123456789₦%#";
+      chars.forEach((ch, k) => {
+        const settle = 0.25 + k * 0.05 + R() * 0.2;
+        if (tau >= settle || ch === " ") return letter(k, 0, 0, 1, color);
+        const step = Math.floor(t * 18);
+        const RR = rng(hashNum(c.scene.id) + k * 7 + step * 13);
+        const g2 = pool[Math.floor(RR() * pool.length)];
+        ctx.save();
+        D.setFont(ctx, weight, size, -0.02, role);
+        ctx.fillStyle = RR() > 0.5 ? accent : pal.fg;
+        ctx.globalAlpha *= clamp(tau * 6);
+        ctx.fillText(g2, xs[k], y + (RR() - 0.5) * size * 0.1);
+        ctx.restore();
+      });
+      break;
+    }
+    case "stamp": {
+      // slams down from big and settles, with a ring and a nudge (Filed. Paid. Done.)
+      const q = clamp(tau / 0.18);
+      const k = q < 1 ? lerp(2.4, 1, ease.inCubic(q)) : 1;
+      const shake = tau > 0.18 && tau < 0.42 ? Math.sin((tau - 0.18) * 70) * size * 0.03 * (1 - (tau - 0.18) / 0.24) : 0;
+      ctx.save();
+      ctx.translate(s.W / 2 + shake, y - size * 0.35);
+      ctx.scale(k, k);
+      ctx.translate(-s.W / 2, -(y - size * 0.35));
+      chars.forEach((_, j) => letter(j, 0, 0, clamp(q * 2), color));
+      ctx.restore();
+      if (tau > 0.17 && tau < 0.75) {
+        const r = ease.outCubic(clamp((tau - 0.17) / 0.55));
+        ctx.save();
+        ctx.globalAlpha *= (1 - r) * 0.6;
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = Math.max(2, size * 0.04 * (1 - r));
+        D.rrect(ctx, x0 - size * 0.3 - r * size * 0.6, y - size * 1.05 - r * size * 0.4, width + size * 0.6 + r * size * 1.2, size * 1.45 + r * size * 0.8, size * 0.3);
+        ctx.stroke();
+        ctx.restore();
+      }
+      break;
+    }
+    case "strike": {
+      chars.forEach((_, k) => letter(k, 0, 0, clamp(tau * 5), pal.fg));
+      const q = ease.inOutCubic(clamp((tau - 0.3) / 0.35));
+      if (q > 0) {
+        ctx.fillStyle = accent;
+        ctx.fillRect(x0 - size * 0.08, y - size * 0.4, (width + size * 0.16) * q, Math.max(3, size * 0.07));
+      }
+      break;
+    }
+    case "dissolve": {
+      // lands, then breaks into drifting specks
+      const q = sp(tau, 0.5);
+      const o = ease.inCubic(clamp((t - (next - 0.45)) / 0.45));
+      chars.forEach((_, k) => {
+        const RR = rng(hashNum(c.scene.id) + k * 53 + i);
+        letter(k, (RR() - 0.5) * size * 0.8 * o, -RR() * size * 1.4 * o, clamp(q * 1.5) * (1 - o), color, 1 - 0.5 * o);
+        if (o > 0) {
+          for (let j = 0; j < 5; j++) {
+            ctx.save();
+            ctx.globalAlpha *= o * (1 - o) * 2.2;
+            ctx.fillStyle = accent;
+            ctx.beginPath();
+            ctx.arc(xs[k] + RR() * size * 0.6 + (RR() - 0.5) * size * 2 * o, y - RR() * size - size * 2 * o * RR(), size * 0.025 * (1 + RR()), 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
+        }
+      });
+      break;
+    }
+    case "count": {
+      // the number in the phrase rolls up (₦0 → ₦4,812)
+      const m = it.text.match(/([₦$£€]?)([\d,]+(?:\.\d+)?)(.*)$/);
+      if (m) {
+        const before = it.text.slice(0, it.text.indexOf(m[0]));
+        const target = Number(m[2].replace(/,/g, ""));
+        const dec = (m[2].split(".")[1] ?? "").length;
+        const v = target * ease.outCubic(clamp(tau / Math.min(0.9, life * 0.6)));
+        const shown = `${before}${m[1]}${formatNumber(v, { decimals: dec })}${m[3]}`;
+        const w2 = D.measure(ctx, shown, size, weight, -0.02, role);
+        D.text(ctx, shown, s.W / 2 - w2 / 2, y, size, weight, color, "left", -0.02, role);
+      } else chars.forEach((_, k) => letter(k, 0, 0, clamp(tau * 4), color));
+      break;
+    }
+    case "type": {
+      const nch = Math.floor(tau * 22);
+      chars.forEach((_, k) => letter(k, 0, 0, k < nch ? 1 : 0, color));
+      if (Math.floor(t * 2.2) % 2 === 0 || nch < chars.length) {
+        const cx = nch >= chars.length ? x0 + width : xs[Math.max(0, nch)] ?? x0;
+        ctx.fillStyle = accent;
+        ctx.fillRect(cx + size * 0.04, y - size * 0.82, Math.max(2, size * 0.06), size * 1);
+      }
+      break;
+    }
+    default: {
+      // slide: the phrase arrives from the side with a smear
+      const q = sp(tau, 0.45);
+      chars.forEach((_, k) => letter(k, (1 - q) * size * 2, 0, clamp(q * 2), color));
+    }
+  }
+  ctx.restore();
+  void u;
+};
+
+/**
+ * Document scan (iBanPay): a receipt, invoice or statement spins in between two halves of a
+ * sentence, straightens, gets scan brackets, and its key fields light up one by one.
+ */
+const doc: Template = (c) => {
+  const { ctx, s, p, t, pal } = c;
+  const u = s.u;
+  const id = str(p.image) || undefined;
+  const info = c.mediaInfo(id);
+  const ar = info ? info.width / info.height : 0.72;
+  const hasSides = !!(p.before || p.after);
+  // stage 1: small, spinning, between the words; stage 2: big and flat for the scan
+  const grow = ease.inOutCubic(clamp((t - 1.25) / 0.7));
+  const spin = sp(t - 0.15, 1.1);
+  const maxH = s.safe.h * (s.portrait ? 0.62 : 0.78);
+  const maxW = s.safe.w * (s.landscape ? 0.42 : s.square ? 0.5 : 0.82);
+  const bigH = Math.min(maxH, maxW / ar);
+  const smallH = bigH * (s.portrait ? 0.42 : 0.5);
+  const h = lerp(smallH, bigH, grow);
+  const w = h * ar;
+  const chipsSide = !s.portrait;
+  const values = arr<any>(p.values).slice(0, 4);
+  const docCx = chipsSide && values.length ? lerp(s.W / 2, s.safe.x + s.safe.w * (s.square ? 0.27 : 0.34), grow) : s.W / 2;
+  const docCy = s.safe.y + s.safe.h * (s.portrait ? 0.42 : 0.5) - (s.portrait && values.length ? grow * s.safe.h * 0.06 : 0);
+  const box = { x: docCx - w / 2, y: docCy - h / 2, w, h };
+  // sentence halves either side (they fade as the document takes over)
+  if (hasSides) {
+    const ts = (s.portrait ? 74 : 70) * u;
+    const fade = 1 - clamp((t - 1.15) / 0.35);
+    const qa = sp(t - 0.05, 0.6);
+    const qb = sp(t - 0.35, 0.6);
+    const gapX = smallH * ar * 0.5 + ts * 0.6;
+    const col = headColors(c, false);
+    ctx.save();
+    ctx.globalAlpha *= fade;
+    if (s.portrait) {
+      if (p.before) {
+        ctx.save();
+        ctx.globalAlpha *= clamp(qa * 1.5);
+        D.text(ctx, str(p.before), s.W / 2, docCy - smallH / 2 - ts * 0.9 + (1 - qa) * 30 * u, ts, 500, col.color, "center", -0.02, "display");
+        ctx.restore();
+      }
+      if (p.after) {
+        ctx.save();
+        ctx.globalAlpha *= clamp(qb * 1.5);
+        D.text(ctx, str(p.after), s.W / 2, docCy + smallH / 2 + ts * 1.5 + (1 - qb) * 30 * u, ts, 500, col.hl, "center", -0.02, "display");
+        ctx.restore();
+      }
+    } else {
+      if (p.before) {
+        ctx.save();
+        ctx.globalAlpha *= clamp(qa * 1.5);
+        D.text(ctx, str(p.before), s.W / 2 - gapX - (1 - qa) * 40 * u, docCy + ts * 0.3, ts, 500, col.color, "right", -0.02, "display");
+        ctx.restore();
+      }
+      if (p.after) {
+        ctx.save();
+        ctx.globalAlpha *= clamp(qb * 1.5);
+        D.text(ctx, str(p.after), s.W / 2 + gapX + (1 - qb) * 40 * u, docCy + ts * 0.3, ts, 500, col.hl, "left", -0.02, "display");
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  } else if (p.title) {
+    headerBlock(c, s.W / 2, s.safe.y, s.safe.w, { title: p.title, kicker: p.kicker, size: (s.portrait ? 70 : 60) * u, align: "center", start: 0.1 });
+  }
+  // the page, spinning in on its vertical axis, then flat
+  const tilt: D.Tilt = { rx: (1 - spin) * 0.5 * (1 - grow) + 0.08 * (1 - grow), ry: ((1 - spin) * 2.6 + 0.32) * (1 - grow), rz: (1 - spin) * -0.3 * (1 - grow) };
+  const enter = clamp(spin * 2);
+  if (enter <= 0.001) return;
+  ctx.save();
+  ctx.globalAlpha *= enter;
+  D.tilted(ctx, s, box, tilt, (g) => {
+    g.save();
+    g.shadowColor = "rgba(8,16,40,0.35)";
+    g.shadowBlur = 50 * u;
+    g.shadowOffsetY = 18 * u;
+    D.rrect(g as any, box.x, box.y, box.w, box.h, 10 * u);
+    g.fillStyle = "#FFFFFF";
+    g.fill();
+    g.restore();
+    if (id && info) drawMedia({ ...c, ctx: g as any }, g as any, id, {}, box, { r: 10 * u, fit: "cover" });
+    else paperInvoice(g as any, box, u, p, pal);
+  }, 2);
+  ctx.restore();
+  // scan brackets snap in, a scan line passes, the fields light up
+  const bq = sp(t - 1.85, 0.5, 0.15);
+  if (bq > 0.01) {
+    const accent = D.solid(pal.highlight === pal.fg ? pal.accent : pal.highlight);
+    const off = (1 - bq) * 70 * u + 16 * u;
+    const arm = Math.min(w, h) * 0.12;
+    ctx.save();
+    ctx.globalAlpha *= clamp(bq * 1.5);
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = Math.max(3, 6 * u);
+    ctx.lineCap = "round";
+    const corners: [number, number, number, number][] = [
+      [box.x - off, box.y - off, 1, 1],
+      [box.x + w + off, box.y - off, -1, 1],
+      [box.x - off, box.y + h + off, 1, -1],
+      [box.x + w + off, box.y + h + off, -1, -1],
+    ];
+    for (const [x, y, dx, dy] of corners) {
+      ctx.beginPath();
+      ctx.moveTo(x + dx * arm, y);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x, y + dy * arm);
+      ctx.stroke();
+    }
+    ctx.restore();
+    const sl = ease.inOutCubic(clamp((t - 2.05) / 0.9));
+    if (sl > 0 && sl < 1) {
+      const yy = box.y + h * sl;
+      const g = ctx.createLinearGradient(0, yy - 60 * u, 0, yy);
+      g.addColorStop(0, "rgba(0,0,0,0)");
+      g.addColorStop(1, accent);
+      ctx.save();
+      ctx.globalAlpha *= 0.35;
+      ctx.fillStyle = g;
+      ctx.fillRect(box.x, yy - 60 * u, w, 60 * u);
+      ctx.restore();
+      ctx.fillStyle = accent;
+      ctx.fillRect(box.x - 10 * u, yy - 1.5 * u, w + 20 * u, Math.max(2, 3 * u));
+    }
+    const fields = arr<any>(p.fields).slice(0, 6);
+    // without an image the drawn invoice's vendor, VAT and total lines light up
+    const fieldsUse = fields.length ? fields : id ? [] : [{ x: 0.05, y: 0.095, w: 0.52, h: 0.055 }, { x: 0.47, y: 0.785, w: 0.49, h: 0.055 }, { x: 0.47, y: 0.85, w: 0.49, h: 0.065 }];
+    fieldsUse.forEach((f, k) => {
+      const q = sp(t - (2.35 + k * 0.4), 0.45, 0.1);
+      if (q <= 0.01) return;
+      const fx = box.x + clamp(+f.x) * w;
+      const fy = box.y + clamp(+f.y) * h;
+      const fw = clamp(+f.w || 0.3, 0.02, 1) * w;
+      const fh = clamp(+f.h || 0.08, 0.02, 1) * h;
+      ctx.save();
+      ctx.globalAlpha *= clamp(q * 1.4);
+      const grow2 = (1 - q) * 10 * u;
+      D.rrect(ctx, fx - 6 * u - grow2, fy - 6 * u - grow2, fw + 12 * u + grow2 * 2, fh + 12 * u + grow2 * 2, 8 * u);
+      ctx.fillStyle = accent;
+      ctx.globalAlpha *= 0.14;
+      ctx.fill();
+      ctx.globalAlpha /= 0.14;
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = Math.max(2, 3 * u);
+      ctx.stroke();
+      if (f.label) D.pill(ctx, fx + fw + 12 * u, fy + fh / 2 - 22 * u, 44 * u, str(f.label), accent, "#FFFFFF", { chevron: false, u });
+      ctx.restore();
+    });
+    // extracted values pop out beside (16:9) or under (9:16, 1:1) the page
+    const vh = (s.portrait ? 96 : 84) * u;
+    values.forEach((v, k) => {
+      const q = sp(t - (2.5 + k * 0.35), 0.55, 0.1);
+      if (q <= 0.01) return;
+      const label = str(v?.label ?? v);
+      const value = str(v?.value ?? "");
+      const cw = chipsSide ? s.safe.w * (s.square ? 0.44 : 0.4) : Math.min(s.safe.w, 760 * u);
+      const cx = chipsSide ? s.safe.x + s.safe.w * (s.square ? 0.56 : 0.6) : s.W / 2 - cw / 2;
+      const cyy = chipsSide ? s.H / 2 - (values.length * (vh + 18 * u)) / 2 + k * (vh + 18 * u) : box.y + h + 70 * u + k * (vh + 14 * u);
+      if (!chipsSide && cyy + vh > s.safe.y + s.safe.h) return;
+      ctx.save();
+      ctx.globalAlpha *= clamp(q * 1.5);
+      ctx.translate((1 - q) * (chipsSide ? 60 : 0) * u, (1 - q) * (chipsSide ? 0 : 30) * u);
+      D.card(ctx, cx, cyy, cw, vh, 22 * u, pal.card, u, { elevation: 0.8, border: pal.cardBorder });
+      D.icon(ctx, "circle-check", cx + 26 * u, cyy + vh / 2 - 17 * u, 34 * u, accent, clamp((q - 0.4) * 2), 2.2);
+      D.text(ctx, label, cx + 76 * u, cyy + vh / 2 + 11 * u, 30 * u, 500, pal.cardMuted);
+      if (value) D.text(ctx, value, cx + cw - 26 * u, cyy + vh / 2 + 12 * u, 34 * u, 600, pal.cardFg, "right", -0.01, "head");
+      ctx.restore();
+    });
+  }
+};
+
+/** A plain invoice drawn natively when no document image is given. */
+function paperInvoice(g: Ctx, box: { x: number; y: number; w: number; h: number }, u: number, p: Record<string, any>, pal: Palette) {
+  const { x, y, w, h } = box;
+  const k = w / 600;
+  const ink = "#0B1F44";
+  const soft = "#E7ECF5";
+  D.text(g, str(p.docTitle, "INVOICE"), x + 40 * k, y + 70 * k, 34 * k, 700, ink, "left", 0.04, "head");
+  D.text(g, str(p.docFrom, "Adaeze Pharmacy Ltd"), x + 40 * k, y + 110 * k, 20 * k, 400, "#5B6B8C");
+  g.fillStyle = D.brandColors() ? D.BRAND.primary : pal.accent;
+  g.fillRect(x + w - 120 * k, y + 44 * k, 80 * k, 30 * k);
+  const rows = arr<any>(p.rows).slice(0, 6);
+  const lines = rows.length ? rows : [{ label: "Paracetamol 500mg x 40", value: "₦48,000" }, { label: "Vitamin C syrup x 25", value: "₦31,250" }, { label: "Amoxicillin 250mg x 20", value: "₦22,500" }, { label: "Hand sanitiser x 12", value: "₦8,750" }, { label: "Delivery", value: "₦5,000" }];
+  lines.forEach((r, i) => {
+    const yy = y + (200 + i * 62) * k;
+    g.fillStyle = soft;
+    g.fillRect(x + 40 * k, yy + 22 * k, w - 80 * k, 2 * k);
+    D.text(g, str(r?.label ?? r), x + 40 * k, yy, 21 * k, 400, ink);
+    D.text(g, str(r?.value ?? ""), x + w - 40 * k, yy, 21 * k, 600, ink, "right");
+  });
+  const ty = y + h - 150 * k;
+  D.text(g, "VAT (7.5%)", x + w * 0.5, ty, 21 * k, 400, "#5B6B8C");
+  D.text(g, str(p.vat, "₦8,662.50"), x + w - 40 * k, ty, 21 * k, 600, ink, "right");
+  D.text(g, "Total", x + w * 0.5, ty + 56 * k, 26 * k, 700, ink);
+  D.text(g, str(p.total, "₦124,162.50"), x + w - 40 * k, ty + 56 * k, 26 * k, 700, ink, "right");
+  void u;
+}
+
+/**
+ * Showcase of screens: a tilted wall that drifts (ConversBank), a filmstrip that steps from card to
+ * card under a swapping label (Lovio, Gemini), or a mosaic where one card lifts out and fills the frame.
+ */
+const wall: Template = (c) => {
+  const { ctx, s, p, t, d, pal } = c;
+  const u = s.u;
+  const ids = arr<any>(p.items)
+    .map((x) => (typeof x === "string" ? { media: x } : { media: str(x?.media ?? x?.image), label: x?.label }))
+    .filter((x) => x.media)
+    .slice(0, 12);
+  const layout = p.layout === "carousel" || p.layout === "mosaic" ? p.layout : "wall";
+  const card = (g: Ctx, x: number, y: number, w: number, h: number, id: string | undefined, alpha = 1, glow = false) => {
+    if (alpha <= 0.002) return;
+    g.save();
+    g.globalAlpha *= alpha;
+    g.shadowColor = glow ? D.solid(pal.accent) : "rgba(8,16,40,0.3)";
+    g.shadowBlur = (glow ? 50 : 30) * u;
+    g.shadowOffsetY = glow ? 0 : 12 * u;
+    D.rrect(g, x, y, w, h, D.radius(26 * u));
+    g.fillStyle = pal.card;
+    g.fill();
+    g.restore();
+    g.save();
+    g.globalAlpha *= alpha;
+    if (id) drawMedia({ ...c, ctx: g }, g, id, {}, { x, y, w, h }, { r: D.radius(26 * u), fit: "cover" });
+    else {
+      g.fillStyle = pal.softCard;
+      D.rrect(g, x + w * 0.08, y + h * 0.1, w * 0.5, h * 0.08, 6 * u);
+      g.fill();
+      g.fillStyle = pal.subtle;
+      D.rrect(g, x + w * 0.08, y + h * 0.26, w * 0.84, h * 0.5, 10 * u);
+      g.fill();
+    }
+    g.restore();
+  };
+  if (!ids.length) c.warn(`Scene "${c.scene.id}": wall needs props.items with screenshots or photos; drawing placeholders.`);
+  const pick = (k: number) => (ids.length ? ids[((k % ids.length) + ids.length) % ids.length] : { media: undefined as string | undefined, label: undefined as string | undefined });
+  if (layout === "wall") {
+    // a tilted, endless grid of screens drifting diagonally
+    const cw = (s.landscape ? 420 : 380) * u;
+    const ch = cw * (p.portraitCards ? 2 : 0.66);
+    const gx = cw + 40 * u;
+    const gy = ch + 40 * u;
+    const drift = t * 60 * u;
+    const box = { x: -s.W * 0.25, y: -s.H * 0.25, w: s.W * 1.5, h: s.H * 1.5 };
+    const tq = sp(t, 1.4);
+    D.tilted(ctx, s, { x: 0, y: 0, w: s.W, h: s.H }, { rx: 0.5 * (0.8 + 0.2 * tq), ry: 0, rz: -0.35 }, (g) => {
+      for (let row = -1; row < Math.ceil(box.h / gy) + 1; row++) {
+        for (let col = -1; col < Math.ceil(box.w / gx) + 1; col++) {
+          const off = (row % 2) * gx * 0.5;
+          const x = box.x + col * gx + off + (drift % gx);
+          const y = box.y + row * gy - ((drift * 0.6) % gy);
+          const it = pick(row * 7 + col * 3);
+          const q = sp(t - 0.05 * ((row + col + 4) % 6), 0.8);
+          card(g as any, x, y + (1 - q) * 80 * u, cw, ch, it.media, clamp(q * 1.4));
+        }
+      }
+    }, 3);
+    // vignette and the title over it
+    const vg = ctx.createRadialGradient(s.W / 2, s.H / 2, Math.min(s.W, s.H) * 0.2, s.W / 2, s.H / 2, Math.max(s.W, s.H) * 0.75);
+    vg.addColorStop(0, "rgba(0,0,0,0)");
+    vg.addColorStop(1, c.theme === "light" ? "rgba(255,255,255,0.75)" : "rgba(5,10,25,0.8)");
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, s.W, s.H);
+    if (p.title) {
+      const bandY = s.safe.y + s.safe.h * 0.38;
+      const bq = sp(t - 0.35, 0.8);
+      const band = ctx.createLinearGradient(0, bandY - 220 * u, 0, bandY + 420 * u);
+      const dark = c.theme !== "light";
+      band.addColorStop(0, dark ? "rgba(5,10,25,0)" : "rgba(255,255,255,0)");
+      band.addColorStop(0.4, dark ? "rgba(5,10,25,0.86)" : "rgba(255,255,255,0.9)");
+      band.addColorStop(0.6, dark ? "rgba(5,10,25,0.86)" : "rgba(255,255,255,0.9)");
+      band.addColorStop(1, dark ? "rgba(5,10,25,0)" : "rgba(255,255,255,0)");
+      ctx.save();
+      ctx.globalAlpha *= clamp(bq * 1.4);
+      ctx.fillStyle = band;
+      ctx.fillRect(0, bandY - 220 * u, s.W, 640 * u);
+      ctx.restore();
+      headerBlock(c, s.W / 2, bandY, s.safe.w, { title: p.title, kicker: p.kicker, size: (s.portrait ? 96 : 92) * u, align: "center", start: 0.5, highlight: arr(p.highlight) });
+    }
+    return;
+  }
+  if (layout === "carousel") {
+    // a filmstrip steps card to card; brackets hold the centre; the label above swaps
+    const n = Math.max(1, ids.length || 4);
+    const every = Math.max(0.6, (d - 0.6) / n);
+    const step = springSteps(t, 0, Array.from({ length: n - 1 }, (_, k) => ({ at: 0.6 + (k + 1) * every, to: k + 1 })), 0.55 * M().settle);
+    const cw = Math.min(s.safe.w * (s.portrait ? 0.8 : 0.5), (s.portrait ? 820 : 900) * u);
+    const ch = cw * (p.portraitCards ? 1.8 : 0.62);
+    const cy = s.safe.y + s.safe.h * (s.portrait ? 0.55 : 0.58) - ch / 2;
+    const gapX = cw * 1.08;
+    for (let k = -2; k < n + 2; k++) {
+      const off = k - step;
+      if (Math.abs(off) > 2.2) continue;
+      const sc = lerp(1, 0.78, clamp(Math.abs(off)));
+      const w = cw * sc;
+      const h = ch * sc;
+      const x = s.W / 2 + off * gapX - w / 2;
+      const y = cy + (ch - h) / 2;
+      const q = sp(t - 0.05 - Math.abs(k) * 0.06, 0.7);
+      card(ctx, x, y + (1 - q) * 60 * u, w, h, pick(k).media, clamp(q * 1.5) * lerp(1, 0.45, clamp(Math.abs(off))), Math.abs(off) < 0.2 && c.theme !== "light");
+    }
+    const bq = sp(t - 0.5, 0.5);
+    const accent = D.solid(pal.highlight === pal.fg ? pal.accent : pal.highlight);
+    ctx.save();
+    ctx.globalAlpha *= clamp(bq * 1.5);
+    const half = cw / 2 + 40 * u + (1 - bq) * 60 * u;
+    bracketGlyph(ctx, s.W / 2 - half, cy - 26 * u, ch + 52 * u, 1, accent, Math.max(3, 6 * u));
+    bracketGlyph(ctx, s.W / 2 + half, cy - 26 * u, ch + 52 * u, -1, accent, Math.max(3, 6 * u));
+    ctx.restore();
+    // label above, swapping with the card
+    const labels = ids.length ? ids.map((x) => x.label).filter(Boolean) : [];
+    const ls = (s.portrait ? 86 : 80) * u;
+    if (labels.length || p.title) {
+      const k = Math.round(step);
+      const label = str(labels.length ? ids[clamp(k, 0, ids.length - 1)].label ?? p.title : p.title);
+      const swap = step - Math.floor(step);
+      const near = Math.min(swap, 1 - swap);
+      ctx.save();
+      ctx.globalAlpha *= clamp(1 - near * 2.4) * clamp(t * 3);
+      D.text(ctx, label, s.W / 2, cy - 70 * u - near * 30 * u, ls, 500, pal.fg, "center", -0.02, "display");
+      ctx.restore();
+    }
+    return;
+  }
+  // mosaic: rows slide in from alternating sides, then one card lifts out and fills the frame
+  const cols = s.landscape ? 4 : 3;
+  const rows = s.portrait ? 5 : 3;
+  const gap = 22 * u;
+  const cw = (s.W * 1.1 - gap * (cols + 1)) / cols;
+  const ch = cw * 0.66;
+  const total = rows * (ch + gap);
+  const y0 = s.H / 2 - total / 2;
+  const focus = clamp(Math.round(Number(p.focus ?? Math.floor((cols * rows) / 2))), 0, cols * rows - 1);
+  const liftAt = Number.isFinite(+p.liftAt) ? +p.liftAt : Math.max(1.4, d - 1.4);
+  const lift = ease.inOutCubic(clamp((t - liftAt) / 1.0));
+  for (let r = 0; r < rows; r++) {
+    const dir = r % 2 ? 1 : -1;
+    const q = sp(t - r * 0.1, 0.9);
+    for (let k = 0; k < cols; k++) {
+      const idx = r * cols + k;
+      if (idx === focus) continue;
+      const x = -s.W * 0.05 + gap + k * (cw + gap) + dir * (1 - q) * s.W * 0.5;
+      card(ctx, x, y0 + r * (ch + gap), cw, ch, pick(idx).media, clamp(q * 1.5) * (1 - lift * 0.7));
+    }
+  }
+  const fr = Math.floor(focus / cols);
+  const fc = focus % cols;
+  const fq = sp(t - fr * 0.1, 0.9);
+  const fx = -s.W * 0.05 + gap + fc * (cw + gap) + (fr % 2 ? 1 : -1) * (1 - fq) * s.W * 0.5;
+  const fy = y0 + fr * (ch + gap);
+  const tw = s.W;
+  const th = s.H;
+  card(ctx, lerp(fx, 0, lift), lerp(fy, 0, lift), lerp(cw, tw, lift), lerp(ch, th, lift), pick(focus).media, clamp(fq * 1.5), lift > 0 && lift < 1);
+};
+
+/**
+ * Device hero (ConversBank, LangEase): the product on a phone, laptop or browser, with small UI
+ * pieces floating around it at different depths and a headline beside it.
+ */
+const hero: Template = (c) => {
+  const { ctx, s, p, t, pal } = c;
+  const u = s.u;
+  const device: "phone" | "laptop" | "browser" = p.device === "laptop" || p.device === "browser" ? p.device : "phone";
+  const id = str(p.image ?? p.media) || undefined;
+  const hasText = !!(p.title || p.kicker || p.sub);
+  // layout: text left and device right on 16:9; text on top, device under it otherwise
+  const side = s.landscape && hasText;
+  const devArea = side ? { x: s.safe.x + s.safe.w * 0.5, y: s.safe.y, w: s.safe.w * 0.5, h: s.safe.h } : { x: s.safe.x, y: s.safe.y + (hasText ? s.safe.h * (s.portrait ? 0.3 : 0.36) : 0), w: s.safe.w, h: s.safe.h * (hasText ? (s.portrait ? 0.7 : 0.64) : 1) };
+  const ar = device === "phone" ? 0.49 : device === "laptop" ? 1.6 : 1.45;
+  let dh = devArea.h * (device === "phone" ? 0.94 : 0.78);
+  let dw = dh * ar;
+  if (dw > devArea.w * (device === "phone" ? 0.6 : 0.95)) {
+    dw = devArea.w * (device === "phone" ? 0.6 : 0.95);
+    dh = dw / ar;
+  }
+  const dx = devArea.x + devArea.w / 2 - dw / 2;
+  const dy = devArea.y + devArea.h / 2 - dh / 2;
+  if (hasText) {
+    const ts = (s.portrait ? 84 : s.landscape ? 100 : 70) * u;
+    if (side) headerBlock(c, s.safe.x, s.safe.y + s.safe.h * 0.32, s.safe.w * 0.45, { kicker: p.kicker, title: p.title, sub: p.sub, size: ts, align: "left", start: 0.25, highlight: arr(p.highlight) });
+    else headerBlock(c, s.W / 2, s.safe.y + (s.portrait ? s.safe.h * 0.02 : 0), s.safe.w, { kicker: p.kicker, title: p.title, sub: p.sub, size: ts, align: "center", start: 0.25, highlight: arr(p.highlight) });
+  }
+  const q = sp(t - 0.05, 1.0);
+  const box = { x: dx, y: dy + (1 - q) * 160 * u, w: dw, h: dh };
+  const tiltMode = p.tilt ?? (side ? "right" : "none");
+  ctx.save();
+  ctx.globalAlpha *= clamp(q * 1.6);
+  D.tilted(ctx, s, box, D.tiltFor(tiltMode, spCalm(t - 0.1, 1.4), t), (g) => drawDevice({ ...c, ctx: g as any }, device, box, id), 4);
+  ctx.restore();
+  // floating UI pieces around the device, bobbing at different depths
+  const chips = arr<any>(p.chips).slice(0, 6).map((x) => (typeof x === "string" ? { text: x } : { text: str(x?.text), icon: x?.icon, sub: x?.sub }));
+  const spots = [
+    [-0.42, 0.18], [0.52, 0.3], [-0.5, 0.62], [0.46, 0.72], [-0.3, 0.9], [0.4, 0.08],
+  ];
+  chips.forEach((ch, k) => {
+    const [ox, oy] = spots[k];
+    const cq = sp(t - (0.7 + k * 0.28), 0.6, 0.12);
+    if (cq <= 0.01) return;
+    const depth = 0.85 + (k % 3) * 0.12;
+    const fs = 30 * u * depth * (s.portrait ? 1.05 : 1);
+    const iconW = ch.icon ? fs * 1.6 : 0;
+    const tw = D.measure(ctx, ch.text, fs, 600, -0.01, "head");
+    const sw = ch.sub ? D.measure(ctx, ch.sub, fs * 0.8, 400) : 0;
+    const w = Math.max(tw, sw) + iconW + fs * 1.6;
+    const h = fs * (ch.sub ? 2.9 : 2.0);
+    let x = box.x + box.w / 2 + ox * Math.max(box.w * 1.5, 520 * u) - w / 2;
+    x = clamp(x, s.safe.x * 0.5, s.W - s.safe.x * 0.5 - w);
+    const y = box.y + oy * box.h - h / 2 + Math.sin(t * 1.4 + k * 1.7) * 8 * u * depth;
+    ctx.save();
+    ctx.globalAlpha *= clamp(cq * 1.5);
+    const sc = 0.7 + 0.3 * cq;
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.scale(sc * depth, sc * depth);
+    ctx.translate(-(x + w / 2), -(y + h / 2));
+    D.card(ctx, x, y, w, h, Math.min(h / 2, 24 * u), pal.card, u, { elevation: 1.2, border: pal.cardBorder });
+    if (ch.icon) D.icon(ctx, D.hasIcon(ch.icon) ? ch.icon : "circle-check", x + fs * 0.75, y + h / 2 - fs * 0.6, fs * 1.2, D.solid(pal.accent), 1, 2);
+    D.text(ctx, ch.text, x + fs * 0.8 + iconW, y + (ch.sub ? h * 0.42 : h / 2 + fs * 0.36), fs, 600, pal.cardFg, "left", -0.01, "head");
+    if (ch.sub) D.text(ctx, ch.sub, x + fs * 0.8 + iconW, y + h * 0.42 + fs * 1.15, fs * 0.8, 400, pal.cardMuted);
+    ctx.restore();
+  });
+};
+
+function drawDevice(c: SceneCtx, kind: "phone" | "laptop" | "browser", box: { x: number; y: number; w: number; h: number }, id?: string) {
+  const { ctx, s, pal } = c;
+  const u = s.u;
+  const { x, y, w, h } = box;
+  ctx.save();
+  ctx.shadowColor = "rgba(8,16,40,0.35)";
+  ctx.shadowBlur = 60 * u;
+  ctx.shadowOffsetY = 24 * u;
+  if (kind === "phone") {
+    D.rrect(ctx, x, y, w, h, w * 0.14);
+    ctx.fillStyle = "#0B0F17";
+    ctx.fill();
+    ctx.restore();
+    const b = w * 0.035;
+    const scr = { x: x + b, y: y + b, w: w - b * 2, h: h - b * 2 };
+    if (id) drawMedia(c, ctx, id, {}, scr, { r: w * 0.11, fit: "cover", focus: { x: 0.5, y: 0 } });
+    else {
+      D.rrect(ctx, scr.x, scr.y, scr.w, scr.h, w * 0.11);
+      ctx.fillStyle = pal.card;
+      ctx.fill();
+    }
+    D.rrect(ctx, x + w / 2 - w * 0.15, y + b + w * 0.03, w * 0.3, w * 0.075, w * 0.04);
+    ctx.fillStyle = "#0B0F17";
+    ctx.fill();
+    return;
+  }
+  if (kind === "laptop") {
+    const sh = h * 0.9;
+    D.rrect(ctx, x + w * 0.06, y, w * 0.88, sh, 18 * u);
+    ctx.fillStyle = "#11151F";
+    ctx.fill();
+    ctx.restore();
+    const b = 14 * u;
+    const scr = { x: x + w * 0.06 + b, y: y + b, w: w * 0.88 - b * 2, h: sh - b * 2 };
+    if (id) drawMedia(c, ctx, id, {}, scr, { r: 6 * u, fit: "cover", focus: { x: 0.5, y: 0 } });
+    else {
+      ctx.fillStyle = pal.card;
+      ctx.fillRect(scr.x, scr.y, scr.w, scr.h);
+    }
+    D.rrect(ctx, x, y + sh, w, h - sh, 10 * u);
+    ctx.fillStyle = "#C9CED8";
+    ctx.fill();
+    return;
+  }
+  const bar = Math.max(30 * u, h * 0.07);
+  D.rrect(ctx, x, y, w, h, 18 * u);
+  ctx.fillStyle = pal.card;
+  ctx.fill();
+  ctx.restore();
+  ctx.save();
+  D.rrect(ctx, x, y, w, h, 18 * u);
+  ctx.clip();
+  ctx.fillStyle = pal.softCard;
+  ctx.fillRect(x, y, w, bar);
+  ["#FF6159", "#FFBD2E", "#28C941"].forEach((col, k) => {
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(x + bar * 0.6 + k * bar * 0.5, y + bar / 2, bar * 0.14, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  if (id) drawMedia(c, ctx, id, {}, { x, y: y + bar, w, h: h - bar }, { fit: "cover", focus: { x: 0.5, y: 0 } });
+  ctx.restore();
+}
+
 export const TEMPLATES: Record<string, Template> = {
+  sentence,
+  verbs,
+  doc,
+  wall,
+  hero,
   title,
   statement,
   stat,

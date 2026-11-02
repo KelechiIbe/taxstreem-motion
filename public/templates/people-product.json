@@ -1,0 +1,180 @@
+{
+ "version": 1,
+ "title": "People + Product sample",
+ "format": "16:9",
+ "look": "taxstreem",
+ "assets": {
+  "p-night": "/templates/img/lagos-night.jpg",
+  "p-market": "/templates/img/market.jpg",
+  "p-naira": "/templates/img/naira.jpg",
+  "p-office": "/templates/img/office.jpg",
+  "p-pharmacy": "/templates/img/pharmacy.jpg",
+  "p-shop": "/templates/img/shop.jpg",
+  "p-skyline": "/templates/img/skyline.jpg",
+  "p-speed": "/templates/img/speed.jpg",
+  "dash": "/templates/dashboard.png",
+  "mobile": "/templates/mobile.png"
+ },
+ "scenes": [
+  {
+   "id": "person",
+   "type": "media",
+   "duration": 3,
+   "props": {
+    "media": "p-pharmacy",
+    "kicker": "Lagos",
+    "headline": "Ada Runs A Pharmacy",
+    "highlight": [
+     "Pharmacy"
+    ],
+    "position": "bottom",
+    "close": {
+     "x": 0.5,
+     "y": 0.5,
+     "zoom": 1.4
+    }
+   }
+  },
+  {
+   "id": "tool",
+   "type": "split",
+   "duration": 4,
+   "props": {
+    "media": "p-pharmacy",
+    "frame": "card",
+    "side": "left",
+    "kicker": "Ada's VAT",
+    "title": "Filed While She Works",
+    "highlight": [
+     "Filed"
+    ],
+    "bullets": [
+     "Receipts read for her",
+     "VAT worked out",
+     "Return filed on time"
+    ]
+   },
+   "transition": "through"
+  },
+  {
+   "id": "promise",
+   "type": "sentence",
+   "duration": 3,
+   "props": {
+    "mode": "type",
+    "lines": [
+     "I'll show you how in *30 seconds*"
+    ]
+   },
+   "transition": "push"
+  },
+  {
+   "id": "demo",
+   "type": "screenshot",
+   "duration": 5,
+   "props": {
+    "image": "dash",
+    "title": "Her Dashboard",
+    "tilt": "back",
+    "open": {
+     "x": 0.66,
+     "y": 0.42,
+     "zoom": 2.2,
+     "at": 0.5
+    },
+    "cursor": [
+     {
+      "x": 0.68,
+      "y": 0.25,
+      "at": 2,
+      "click": true
+     }
+    ],
+    "focus": [
+     {
+      "x": 0.55,
+      "y": 0.15,
+      "w": 0.27,
+      "h": 0.22,
+      "at": 2.4,
+      "label": "VAT payable"
+     }
+    ]
+   },
+   "transition": "push"
+  },
+  {
+   "id": "question",
+   "type": "sentence",
+   "duration": 3,
+   "props": {
+    "mode": "build",
+    "lines": [
+     {
+      "text": "Need PAYE *too*?",
+      "at": 0.15
+     },
+     {
+      "text": "We've got that.",
+      "at": 1.5
+     }
+    ]
+   },
+   "theme": "blue",
+   "transition": "through"
+  },
+  {
+   "id": "choice",
+   "type": "ui",
+   "duration": 3.6,
+   "props": {
+    "kind": "picker",
+    "title": "Pick What To File",
+    "items": [
+     {
+      "label": "VAT",
+      "icon": "receipt"
+     },
+     {
+      "label": "PAYE",
+      "icon": "users"
+     },
+     {
+      "label": "WHT",
+      "icon": "percent"
+     }
+    ],
+    "selected": 1,
+    "result": "PAYE added"
+   },
+   "transition": "push"
+  },
+  {
+   "id": "shop",
+   "type": "media",
+   "duration": 2.4,
+   "props": {
+    "media": "p-shop",
+    "headline": "Built For Nigerian Business",
+    "highlight": [
+     "Nigerian"
+    ],
+    "position": "bottom"
+   },
+   "transition": "through"
+  },
+  {
+   "id": "close",
+   "type": "cta",
+   "duration": 3,
+   "props": {
+    "headline": "Try TaxStreem Free",
+    "highlight": [
+     "Free"
+    ],
+    "cta": "Try free"
+   },
+   "transition": "star"
+  }
+ ]
+}

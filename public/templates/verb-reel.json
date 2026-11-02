@@ -1,0 +1,119 @@
+{
+ "version": 1,
+ "title": "Verb Reel sample",
+ "format": "9:16",
+ "look": "keynote",
+ "assets": {
+  "dash": "/templates/dashboard.png",
+  "mobile": "/templates/mobile.png"
+ },
+ "scenes": [
+  {
+   "id": "open",
+   "type": "sentence",
+   "duration": 2,
+   "props": {
+    "mode": "assemble",
+    "lines": [
+     "TaxStreem"
+    ]
+   }
+  },
+  {
+   "id": "promise",
+   "type": "sentence",
+   "duration": 2.2,
+   "props": {
+    "mode": "build",
+    "lines": [
+     "One app. *Every tax.*"
+    ]
+   },
+   "transition": "cut"
+  },
+  {
+   "id": "verbs1",
+   "type": "verbs",
+   "duration": 3.6,
+   "props": {
+    "items": [
+     {
+      "text": "Track it.",
+      "effect": "scan"
+     },
+     {
+      "text": "File it.",
+      "effect": "stamp"
+     },
+     {
+      "text": "Pay ₦100,379",
+      "effect": "count"
+     }
+    ]
+   },
+   "transition": "cut"
+  },
+  {
+   "id": "flash",
+   "type": "hero",
+   "duration": 2.2,
+   "props": {
+    "device": "phone",
+    "image": "mobile",
+    "chips": [
+     {
+      "text": "VAT filed",
+      "icon": "circle-check"
+     }
+    ]
+   },
+   "transition": "cut"
+  },
+  {
+   "id": "verbs2",
+   "type": "verbs",
+   "duration": 3.6,
+   "props": {
+    "items": [
+     {
+      "text": "Remind me.",
+      "effect": "type"
+     },
+     {
+      "text": "Scrap the spreadsheets.",
+      "effect": "drop",
+      "size": "l"
+     },
+     {
+      "text": "Relax.",
+      "effect": "glow",
+      "accent": true
+     }
+    ]
+   },
+   "transition": "cut"
+  },
+  {
+   "id": "offer",
+   "type": "sentence",
+   "duration": 2.6,
+   "props": {
+    "mode": "type",
+    "lines": [
+     "Your first return is *free*."
+    ]
+   },
+   "transition": "cut"
+  },
+  {
+   "id": "logo",
+   "type": "cta",
+   "duration": 2.4,
+   "props": {
+    "headline": "TaxStreem",
+    "cta": "Get started"
+   },
+   "transition": "mark"
+  }
+ ]
+}

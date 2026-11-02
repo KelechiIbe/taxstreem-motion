@@ -27,7 +27,7 @@ export interface Env {
   beats?: number[];
 }
 
-const TDUR: Record<TransitionKind, number> = { cut: 0, fade: 0.5, push: 0.7, "slide-up": 0.75, wipe: 0.9, zoom: 0.6 };
+const TDUR: Record<TransitionKind, number> = { cut: 0, fade: 0.5, push: 0.7, "slide-up": 0.75, wipe: 0.9, zoom: 0.6, star: 0.85, mark: 0.85, stack: 0.85, blob: 0.9, whip: 0.42, through: 0.6 };
 
 interface Phrase {
   start: number;
@@ -112,6 +112,7 @@ export class Composition {
     const s = this.stage;
     ctx.save();
     D.background(ctx, s, theme, { t: tm.start + local, seed: hashString(sc.id || String(i)) % 7, pattern: sc.props?.pattern !== false });
+    sceneCamera(ctx, s, sc.props ?? {}, local, tm.duration);
     const env = this.env;
     const tpl = TEMPLATES[sc.type];
     if (tpl) {
@@ -184,7 +185,7 @@ export class Composition {
       b.setTransform(1, 0, 0, 1, 0, 0);
       this.drawScene(a, i - 1, t - prev.start);
       this.drawScene(b, i, local);
-      this.transition(ctx, kind, local / td, this.layers[0], this.layers[1]);
+      this.transition(ctx, kind, local / td, this.layers[0], this.layers[1], this.spec.scenes[i - 1]?.theme ?? this.theme);
     } else {
       this.drawScene(ctx, i, local);
     }
@@ -194,7 +195,7 @@ export class Composition {
     void H;
   }
 
-  private transition(ctx: Ctx, kind: TransitionKind, p: number, A: OffscreenCanvas, B: OffscreenCanvas) {
+  private transition(ctx: Ctx, kind: TransitionKind, p: number, A: OffscreenCanvas, B: OffscreenCanvas, fromTheme: Theme = "light") {
     const { W, H, u, portrait } = this.stage;
     const vertical = portrait;
     switch (kind) {
@@ -270,6 +271,127 @@ export class Composition {
         ctx.globalAlpha = k;
         ctx.translate(W / 2, H / 2);
         ctx.scale(0.9 + 0.1 * k, 0.9 + 0.1 * k);
+        ctx.drawImage(B, -W / 2, -H / 2);
+        ctx.restore();
+        break;
+      }
+      case "star":
+      case "mark":
+      case "blob": {
+        // a brand shape swells from the centre (v05 star, LemFi shapes); the next scene opens inside it
+        // slow start so the shape reads (the mark is recognisable), then it rushes to fill the frame
+        const grow = (q: number) => Math.pow(ease.inOutCubic(clamp(q)), kind === "mark" ? 2.4 : 1.6);
+        const fill = grow(p / 0.62);
+        const win = grow((p - 0.28) / 0.72);
+        ctx.drawImage(A, 0, 0);
+        const diag = Math.hypot(W, H);
+        // on a blue scene the shape is white so it reads; elsewhere it's the brand gradient
+        const onBlue = fromTheme === "blue";
+        const c1 = onBlue ? "#FFFFFF" : D.brandColors() ? D.BRAND.primary : this.colors.primary;
+        const c2 = onBlue ? (D.brandColors() ? D.BRAND.lightBlue : this.colors.secondary) : D.brandColors() ? D.BRAND.lightBlue : this.colors.secondary;
+        const shape = (g: Ctx, r: number, rot: number) => {
+          if (kind === "mark") {
+            const h = r * 1.15;
+            D.mark(g as any, W / 2 - D.markWidth(h) / 2, H / 2 - h / 2, h, "#000000", 1, 1);
+          } else if (kind === "star") starPath(g, W / 2, H / 2, r, rot);
+          else {
+            g.beginPath();
+            g.arc(W / 2 - r * 0.35, H / 2 + r * 0.1, r * 0.8, 0, Math.PI * 2);
+            g.arc(W / 2 + r * 0.4, H / 2 - r * 0.15, r * 0.7, 0, Math.PI * 2);
+          }
+        };
+        // reach: a star needs ~2.4x the half-diagonal to cover the frame, the mark more
+        const reach = kind === "star" ? diag * 1.35 : kind === "mark" ? diag * 2.4 : diag * 1.1;
+        if (fill > 0.001 && win < 0.999) {
+          const tmp = D.scratch(W, H, 20).getContext("2d")!;
+          tmp.setTransform(1, 0, 0, 1, 0, 0);
+          tmp.globalCompositeOperation = "source-over";
+          tmp.clearRect(0, 0, W, H);
+          tmp.fillStyle = "#000";
+          shape(tmp, reach * fill, p * 0.9);
+          if (kind !== "mark") tmp.fill();
+          tmp.globalCompositeOperation = "source-in";
+          const g = tmp.createLinearGradient(0, H, W, 0);
+          g.addColorStop(0, c1);
+          g.addColorStop(1, c2);
+          tmp.fillStyle = g;
+          tmp.fillRect(0, 0, W, H);
+          tmp.globalCompositeOperation = "source-over";
+          ctx.drawImage(tmp.canvas, 0, 0);
+        }
+        if (win > 0.001) {
+          const tmp = D.scratch(W, H, 21).getContext("2d")!;
+          tmp.setTransform(1, 0, 0, 1, 0, 0);
+          tmp.globalCompositeOperation = "source-over";
+          tmp.clearRect(0, 0, W, H);
+          tmp.fillStyle = "#000";
+          shape(tmp, reach * win, p * 0.9);
+          if (kind !== "mark") tmp.fill();
+          tmp.globalCompositeOperation = "source-in";
+          tmp.drawImage(B, 0, 0);
+          tmp.globalCompositeOperation = "source-over";
+          ctx.drawImage(tmp.canvas, 0, 0);
+        }
+        break;
+      }
+      case "stack": {
+        // three rounded brand squares sweep diagonally across; the next scene is behind the last one
+        const cols = D.brandColors() ? [D.BRAND.lightBlue, D.BRAND.primary, "#0B1F44"] : [this.colors.secondary, this.colors.primary, this.colors.ink];
+        // each square grows as it passes the centre (where the cut happens) and shrinks as it leaves
+        const base = Math.max(W, H) * 0.6;
+        const lead = (q: number) => ease.inOutCubic(clamp(q));
+        const span = 0.56;
+        ctx.drawImage(lead((p - 0.16) / span) >= 0.5 ? B : A, 0, 0);
+        for (let k = 0; k < 3; k++) {
+          const q = lead((p - k * 0.16) / span);
+          if (q <= 0 || q >= 1) continue;
+          const size = base * (0.5 + 1.15 * Math.sin(Math.PI * q));
+          const cx = lerpN(-base * 0.6, W + base * 0.6, q);
+          const cy = lerpN(H + base * 0.6, -base * 0.6, q);
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.rotate(-0.22 + k * 0.1);
+          D.rrect(ctx, -size / 2, -size / 2, size, size, size * 0.16);
+          ctx.fillStyle = cols[k];
+          ctx.fill();
+          ctx.restore();
+        }
+        break;
+      }
+      case "whip": {
+        // fast horizontal (or vertical) whip with a smear, like a camera pan
+        const k = ease.inOutExpo(p);
+        const dx = vertical ? 0 : W;
+        const dy = vertical ? H : 0;
+        const v = Math.sin(Math.PI * p) * (vertical ? H : W) * 0.09;
+        const smear = (img: OffscreenCanvas, ox: number, oy: number) => {
+          for (let j = 0; j < 6; j++) {
+            ctx.globalAlpha = j === 0 ? 1 : 0.22;
+            const f = (j / 5) * v;
+            ctx.drawImage(img, ox + (vertical ? 0 : f), oy + (vertical ? f : 0));
+          }
+          ctx.globalAlpha = 1;
+        };
+        smear(A, -dx * k, -dy * k);
+        smear(B, dx * (1 - k), dy * (1 - k));
+        break;
+      }
+      case "through": {
+        // dive through the current scene into the next one
+        const k = ease.inOutCubic(p);
+        ctx.save();
+        ctx.globalAlpha = 1 - clamp(k * 1.4);
+        ctx.translate(W / 2, H / 2);
+        ctx.scale(1 + 0.9 * k * k, 1 + 0.9 * k * k);
+        if (k > 0.05) ctx.filter = `blur(${(k * 18 * u).toFixed(1)}px)`;
+        ctx.drawImage(A, -W / 2, -H / 2);
+        ctx.restore();
+        ctx.save();
+        ctx.globalAlpha = clamp((k - 0.15) * 1.6);
+        const sb = 0.82 + 0.18 * k;
+        ctx.translate(W / 2, H / 2);
+        ctx.scale(sb, sb);
+        if (k < 0.8) ctx.filter = `blur(${((1 - k) * 10 * u).toFixed(1)}px)`;
         ctx.drawImage(B, -W / 2, -H / 2);
         ctx.restore();
         break;
@@ -427,4 +549,64 @@ export async function contactSheet(comp: Composition, times: { t: number; label:
     g.fillText(`${x.t.toFixed(2)}s  ${x.label}`.slice(0, 44), cx + 2, cy + th + 18);
   }
   return sheet;
+}
+
+const lerpN = (a: number, b: number, p: number) => a + (b - a) * p;
+
+/** A soft four-point star (the sparkle many launch videos swell into). */
+function starPath(g: Ctx, cx: number, cy: number, r: number, rot: number) {
+  const inner = r * 0.28;
+  g.beginPath();
+  for (let i = 0; i < 4; i++) {
+    const a = rot + (i * Math.PI) / 2 - Math.PI / 2;
+    const b = a + Math.PI / 4;
+    const px = cx + Math.cos(a) * r;
+    const py = cy + Math.sin(a) * r;
+    const qx = cx + Math.cos(b) * inner;
+    const qy = cy + Math.sin(b) * inner;
+    if (i === 0) g.moveTo(px, py);
+    else g.quadraticCurveTo(cx + Math.cos(a - Math.PI / 4) * inner * 0.6, cy + Math.sin(a - Math.PI / 4) * inner * 0.6, px, py);
+    g.quadraticCurveTo(cx + Math.cos(b - Math.PI / 8) * inner * 0.55, cy + Math.sin(b - Math.PI / 8) * inner * 0.55, qx, qy);
+    void qx;
+  }
+  const a0 = rot - Math.PI / 2;
+  g.quadraticCurveTo(cx + Math.cos(a0 - Math.PI / 4) * inner * 0.6, cy + Math.sin(a0 - Math.PI / 4) * inner * 0.6, cx + Math.cos(a0) * r, cy + Math.sin(a0) * r);
+  g.closePath();
+}
+
+/**
+ * Scene camera, set in props: "open" starts close on a point of the frame and pulls back
+ * (the macro-then-context move), "close" pushes in at the end (hands over to a "through" cut).
+ * Points are fractions of the frame; zoom 1 = no zoom.
+ */
+function sceneCamera(ctx: Ctx, s: Stage, p: Record<string, any>, t: number, d: number) {
+  const o = p.open && typeof p.open === "object" ? p.open : p.open === true ? {} : null;
+  const c = p.close && typeof p.close === "object" ? p.close : p.close === true ? {} : null;
+  if (!o && !c) return;
+  let z = 1;
+  let fx = 0.5;
+  let fy = 0.5;
+  if (o) {
+    const zoom = Math.min(6, Math.max(1, Number(o.zoom) || 2.6));
+    const at = Number.isFinite(+o.at) ? +o.at : 0.7;
+    const dur = Number.isFinite(+o.dur) ? Math.max(0.3, +o.dur) : 1.1;
+    const k = ease.inOutCubic(clamp((t - at) / dur));
+    z = zoom + (1 - zoom) * k;
+    fx = clamp(Number(o.x ?? 0.5)) * (1 - k) + 0.5 * k;
+    fy = clamp(Number(o.y ?? 0.5)) * (1 - k) + 0.5 * k;
+  }
+  if (c) {
+    const zoom = Math.min(6, Math.max(1, Number(c.zoom) || 1.6));
+    const dur = Number.isFinite(+c.dur) ? Math.max(0.3, +c.dur) : 0.9;
+    const k = ease.inCubic(clamp((t - (d - dur)) / dur));
+    if (k > 0) {
+      z *= 1 + (zoom - 1) * k;
+      fx = fx * (1 - k) + clamp(Number(c.x ?? 0.5)) * k;
+      fy = fy * (1 - k) + clamp(Number(c.y ?? 0.5)) * k;
+    }
+  }
+  if (Math.abs(z - 1) < 1e-3) return;
+  ctx.translate(s.W / 2, s.H / 2);
+  ctx.scale(z, z);
+  ctx.translate(-fx * s.W, -fy * s.H);
 }

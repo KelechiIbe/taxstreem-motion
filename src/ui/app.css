@@ -289,3 +289,26 @@ textarea.code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fon
 .scene-thumbs { display: flex; gap: 6px; }
 .scene-thumbs img { width: 56px; height: 42px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
 .player-direct { display: flex; align-items: center; gap: 8px; justify-content: center; margin-top: 8px; }
+
+/* Video templates */
+.tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.tpl-grid.compact { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; max-height: 52vh; overflow: auto; padding: 2px; }
+.tpl-card { display: flex; flex-direction: column; text-align: left; border: 1px solid var(--line); border-radius: 14px; background: #fff; padding: 0; overflow: hidden; cursor: pointer; font: inherit; color: inherit; transition: border-color 0.15s, box-shadow 0.15s; }
+.tpl-card:hover { border-color: #cfd6e4; box-shadow: var(--shadow-md); }
+.tpl-card.on { outline: 3px solid var(--primary); outline-offset: -1px; }
+.tpl-poster { position: relative; aspect-ratio: 16 / 9; background: var(--surface-2); overflow: hidden; }
+.tpl-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tpl-poster.auto { display: grid; place-items: center; font-size: 34px; color: var(--primary); background: linear-gradient(135deg, var(--blue-50), #fff); }
+.tpl-play { position: absolute; right: 8px; bottom: 8px; border: 0; border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 12px; font-weight: 600; background: rgba(10, 16, 30, 0.72); color: #fff; cursor: pointer; }
+.tpl-play:hover { background: var(--primary); }
+.tpl-meta { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px 12px; }
+.tpl-facts { color: var(--ink-500); }
+.tpl-preview .tpl-stage { display: grid; place-items: center; background: var(--surface-2); border-radius: 14px; padding: 12px; }
+.tpl-preview .tpl-stage .player { width: 100%; max-width: 760px; }
+.tpl-preview .tpl-stage .screen.f9x16 { height: min(58vh, 640px); }
+.tpl-preview .tpl-stage .screen.f1x1 { height: min(56vh, 600px); width: auto; aspect-ratio: 1 / 1; }
+.tpl-preview .tpl-stage .screen.f16x9 { width: min(100%, 760px); height: auto; aspect-ratio: 16 / 9; }
+.tpl-about { background: var(--surface-2); border-radius: 12px; padding: 10px 14px; }
+.script-empty .tpl-section { margin-top: 18px; text-align: left; }
+.tpl-chosen { display: flex; align-items: center; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: #fff; text-align: left; }
+.tpl-chosen img { width: 120px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; }

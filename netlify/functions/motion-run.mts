@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireUser, download } from "./_lib/db";
 import { env } from "./_lib/http";
 import { getClaude, getKey } from "./_lib/keys";
+import { BLUEPRINT_BY_ID, blueprintGuide, blueprintMenu } from "../../src/runtime/blueprints";
 import { callTool, MODEL, type Block, type Msg } from "./_lib/claude";
 import { GENERATE_SYSTEM, REVIEW_SYSTEM, REVIEW_TOOL, SCRIPT_SYSTEM, SCRIPT_TOOL, UPDATE_TOOL } from "./_lib/prompts";
 import { generateImage, importStock, pexelsSearch, storeAsset, youtubeLinks, youtubeRef, type StoredAsset } from "./_lib/media";
@@ -85,8 +86,10 @@ export default async (req: Request) => {
       const script: Script | null = project.script ?? null;
       const pexelsOn = await getKey(db, "pexels").then(() => true, () => false);
       const waiting = (script?.scenes ?? []).flatMap((sc) => (sc.media ?? []).filter((m) => /^envato:/i.test(m)).map((m) => `${sc.id}: ${m}`));
+      const bp = script?.blueprint || project.blueprint || null;
       const context = [
         `Project format: ${project.format}. Title: ${project.title}.`,
+        bp ? blueprintGuide(bp) : `The team hasn't picked a video template. Templates:\n${blueprintMenu()}`,
         `Pexels stock is ${pexelsOn ? "on: stock: requests in a spec are fetched automatically" : "off: don't use stock: requests; ask for envato: files in the script instead"}.`,
         ...(waiting.length && !isScript ? [`Envato files the script asks for that haven't been added yet (build those scenes without them): ${waiting.join("; ")}.`] : []),
         `Assets you can use:\n${describeAssets(assets) || "(none uploaded yet)"}`,
@@ -377,6 +380,7 @@ function cleanScript(raw: any, format: Format, prev: Script | null): Script {
     title: String(raw?.title ?? "Untitled video").slice(0, 120),
     idea: String(raw?.idea ?? "").slice(0, 2000),
     context: String(raw?.context ?? "").slice(0, 6000),
+    blueprint: BLUEPRINT_BY_ID.has(String(raw?.blueprint)) ? String(raw.blueprint) : prev?.blueprint,
     audience: raw?.audience ? String(raw.audience).slice(0, 300) : undefined,
     platform: raw?.platform ? String(raw.platform).slice(0, 120) : undefined,
     format: formats.includes(raw?.format) ? raw.format : format,

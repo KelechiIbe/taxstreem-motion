@@ -35,7 +35,7 @@ export const CATALOG: TemplateDoc[] = [
   {
     name: "screenshot",
     use: "Product UI in a browser window, phone or plain card, with a camera that zooms to regions, a cursor that clicks, spotlight and callout labels. The core of product videos. Wide screenshots in 9:16/1:1 are shown cropped in a larger window and the camera pans, so always give focus regions for them.",
-    props: `image: asset id of an uploaded screenshot (required). frame?: "browser" | "phone" | "none" (auto: phone for tall images, browser for wide). url?: text in the browser bar (default app.taxstreem.com). kicker?, title?, sub?, highlight?: header text above (9:16, 1:1) or beside (16:9) the frame. focus?: [{x, y, w, h, at, label?, spotlight?, zoom?}] regions in 0..1 fractions of the IMAGE (x,y = top-left), at = seconds into the scene when the camera moves there; label adds a callout pill; spotlight dims everything else (on by default when there is a label). To zoom back out add {x:0,y:0,w:1,h:1,at}. cursor?: [{x, y, at, click?}] in image fractions; at = when it clicks (it travels for ~0.85s before). view?: {x, y} resting camera centre for cropped views (default 0.5, 0.5). crop?: false to always show the whole screenshot. video?: asset id of a screen recording to play in the frame instead of a still (use with start?, speed?, end?, loop?; focus and cursor fractions are of the video frame). tilt?: "none" | "left" | "right" | "back" for a 3D-leaning frame (glass and neon looks lean by default; it flattens when the camera zooms to a focus region).`,
+    props: `image: asset id of an uploaded screenshot (required). frame?: "browser" | "phone" | "none" (auto: phone for tall images, browser for wide). url?: text in the browser bar (default app.taxstreem.com). kicker?, title?, sub?, highlight?: header text above (9:16, 1:1) or beside (16:9) the frame. focus?: [{x, y, w, h, at, label?, spotlight?, zoom?}] regions in 0..1 fractions of the IMAGE (x,y = top-left), at = seconds into the scene when the camera moves there; label adds a callout pill; spotlight dims everything else (on by default when there is a label). To zoom back out add {x:0,y:0,w:1,h:1,at}. cursor?: [{x, y, at, click?}] in image fractions; at = when it clicks (it travels for ~0.85s before). view?: {x, y} resting camera centre for cropped views (default 0.5, 0.5). crop?: false to always show the whole screenshot. video?: asset id of a screen recording to play in the frame instead of a still (use with start?, speed?, end?, loop?; focus and cursor fractions are of the video frame). tilt?: "none" | "left" | "right" | "back" for a 3D-leaning frame (glass and neon looks lean by default; it flattens when the camera zooms to a focus region). macro?: {x, y, w, h, out?} open right on that detail of the screenshot (the camera fills the frame with it) and pull back to the whole screen at out seconds (default 1.1): the macro-then-context move; put a cursor click inside the macro region before out.`,
     example: { image: "<asset-id>", kicker: "Dashboard", title: "Every Tax In One View", focus: [{ x: 0.6, y: 0.19, w: 0.18, h: 0.23, at: 1.4, label: "VAT payable" }], cursor: [{ x: 0.69, y: 0.33, at: 2.2 }] },
     seconds: [4, 8],
   },
@@ -98,7 +98,7 @@ export const CATALOG: TemplateDoc[] = [
   {
     name: "media",
     use: "Full-bleed photo or video clip (footage, b-roll, a recording) with a slow camera move and an optional headline over a soft scrim. Use for real-world scenes, people, places and footage the user uploaded or picked from stock.",
-    props: `media: asset id of an image or video (required). start?, speed?, end?, loop?: which part of a clip plays (seconds into the file; speed 0.5 = slow motion). volume?: 0..1 to keep the clip's own sound (default 0, silent). motion?: "in" | "out" | "left" | "right" | "up" | "down" | "none" (slow camera; default "in" for photos, "none" for clips). focus?: {x, y} 0..1 point to keep in view when cropping. fit?: "cover" | "contain". frame?: "card" to show it as a rounded card instead of full-bleed. overlay?: "dark" | "light" | "brand" | "none" (default dark when there is text). position?: "bottom" | "center" | "top" for the text. kicker?, headline?, sub?, highlight?, align?.`,
+    props: `media: asset id of an image or video (required). start?, speed?, end?, loop?: which part of a clip plays (seconds into the file; speed 0.5 = slow motion). volume?: 0..1 to keep the clip's own sound (default 0, silent). motion?: "in" | "out" | "left" | "right" | "up" | "down" | "none" (slow camera; default "in" for photos, "none" for clips). focus?: {x, y} 0..1 point to keep in view when cropping. fit?: "cover" | "contain". frame?: "card" to show it as a rounded card instead of full-bleed. overlay?: "dark" | "light" | "brand" | "none" (default dark when there is text). grade?: "mono" (black and white, for hype montages) | "dark" | "warm" | "cool". position?: "bottom" | "center" | "top" for the text. kicker?, headline?, sub?, highlight?, align?.`,
     example: { media: "<asset-id>", kicker: "Real businesses", headline: "Built For The Way Lagos Works", highlight: ["Lagos"], position: "bottom" },
     seconds: [2.5, 6],
   },
@@ -133,16 +133,53 @@ export const CATALOG: TemplateDoc[] = [
   {
     name: "ui",
     use: "Native product UI drawn in the video's style, no screenshot needed: a button being clicked, an AI prompt being typed, notifications arriving, a picker landing on a choice, settings switching on, a payment receipt, a chat. Great for showing what the product does without exposing real screens.",
-    props: `kind: "button" | "prompt" | "notifications" | "picker" | "toggles" | "payment" | "chat". kicker?, title?, sub?, highlight? above the component. tilt?: "none" | "left" | "right" | "back".
+    props: `kind: "button" | "prompt" | "notifications" | "picker" | "toggles" | "payment" | "chat" | "status" | "success". kicker?, title?, sub?, highlight? above the component. tilt?: "none" | "left" | "right" | "back".
   button: label, icon?, after? (label after the click, e.g. "Filed"), at? (seconds when the hand clicks).
   prompt: placeholder?, text (typed in), icon? (default sparkles), chips? (up to 4 suggestion pills).
   notifications: items [{title, body?, icon? (or "taxstreem" for the mark), time?}] up to 4, arriving newest on top.
   picker: items [{label, icon?}] up to 7, selected (index it lands on), result? (text that appears once chosen).
   toggles: items [{label, sub?, icon?, on? (false to leave off)}] up to 6, switching on one by one.
   payment: title?, amount, prefix?, decimals?, rows [{label, value}] up to 5, status? (pill at the bottom).
-  chat: messages [{from: "user" | "bot", text}] up to 6; the bot shows typing dots before each reply.`,
+  chat: messages [{from: "user" | "bot", text}] up to 6; the bot shows typing dots before each reply.
+  status: items [{text, sub?, icon?}] up to 6 rows landing one by one, each spinner turning into a green tick (checks running, approvals, "Reading 214 invoices… Working out VAT… Filed with FIRS"); heading?, right? (column labels), style?: "card" | "terminal", every? (seconds between rows).
+  success: label (the button, e.g. "File return"), busy? ("Filing…"), done ("Return filed"), sub? (small pill under it), at? (seconds when it is clicked): the cursor presses the button, it turns into a shimmering pill, shrinks into a ring that fills, a tick draws, and the result rises under it. Needs ~4.5s.`,
     example: { kind: "notifications", title: "Never Miss A Deadline", items: [{ title: "VAT due in 5 days", body: "Your return is ready to review.", icon: "calendar-clock" }, { title: "Return filed", body: "FIRS acknowledged your June VAT." }] },
     seconds: [3, 6],
+  },
+  {
+    name: "sentence",
+    use: "Kinetic sentences, the main actor of modern launch videos: one short phrase per beat landing word by word, with chips, icons, pictures or the logo living inside the line, swaps in place, brackets, selection highlights and letters assembling. Use it for hooks, setups, payoffs and the voice of the video between product moments.",
+    props: `lines: ["phrase", ...] or [{text, at?}] 1-10 phrases of 1-7 words. Inside a phrase: *word* puts it in the accent; {chip:+ New} a UI button inside the sentence; {icon:sparkles} an icon; {image:<asset-id>} a small picture inside the sentence; {logo} the TaxStreem mark. at = seconds into the scene when the phrase lands (default: spread evenly). mode?: "build" (default: words land one at a time, the line re-centres) | "dolly" (the phrase lands big and keeps easing away, next one blurs in: calm, cinematic) | "type" (typewriter with a tall caret) | "scroll" (all phrases continue one line that slides left as words arrive) | "rotate" (the last word swaps through words[]: "Meet your {chip:+ New} *accountant*" → bookkeeper → tax adviser) | "brackets" (the phrase is framed by brackets that then squeeze it away; squeeze?: true to squeeze the last phrase too) | "select" (a selection highlight sweeps across the accent words) | "assemble" (fragments fly in from scattered spots and click together, then scatter) | "stack" (phrases land under each other, older ones dim). words?: for rotate. sparkles?: true for small four-point sparkles by the accent words. size?: "xl" (default) | "l" | "m". align?: "center" | "left". media?: a photo or clip behind (with overlay?).`,
+    example: { mode: "rotate", lines: ["Meet your {chip:+ New} *accountant*"], words: ["bookkeeper", "tax adviser", "finance team"] },
+    seconds: [1.5, 5],
+  },
+  {
+    name: "verbs",
+    use: "Type that acts out its verb, one short phrase per beat on the music (Apple-style): 'File it.' stamps down, 'Track it.' is scanned sharp, 'Relax.' glows, 'Scrap the spreadsheets.' drops away. Fast, rhythmic, best on a dark or plain ground.",
+    props: `items: [{text (1-4 words), effect?, at?, accent? (true for the accent colour)}] 2-10 beats, 0.5-1.5s each. effect: "stamp" | "scan" | "glow" | "bounce" | "select" (marquee) | "write" (pen) | "drop" (letters land, fall away) | "glitch" | "strike" (struck through) | "dissolve" (breaks into specks) | "count" (the number in the phrase rolls up) | "type" | "slide". Pick the effect that means the word. size?: "l" for long phrases.`,
+    example: { items: [{ text: "Track it.", effect: "scan" }, { text: "File it.", effect: "stamp" }, { text: "Relax.", effect: "glow", accent: true }] },
+    seconds: [2, 7],
+  },
+  {
+    name: "doc",
+    use: "Document scan: a receipt, invoice or bank statement spins in between two halves of a sentence, straightens, scan brackets snap round it, a scan line passes and its key fields light up, with the extracted values popping out beside it. TaxStreem reading receipts, invoices, payslips and statements.",
+    props: `image?: asset id of the document (without one, a clean invoice is drawn; set rows [{label, value}], vat, total, docTitle, docFrom for it). before?, after?: the two halves of the sentence either side ("It reads", "every receipt"). fields?: [{x, y, w, h, label?}] boxes on the document in 0..1 fractions of it, lit in order. values?: [{label, value}] up to 4 extracted values that pop out as cards. title?, kicker?: when there is no sentence. Needs ~5-6s.`,
+    example: { before: "It reads", after: "every invoice", values: [{ label: "Vendor", value: "Adaeze Pharmacy" }, { label: "VAT (7.5%)", value: "₦8,662.50" }, { label: "Total", value: "₦124,162.50" }] },
+    seconds: [4.5, 7],
+  },
+  {
+    name: "wall",
+    use: "Showcase of screens or photos: a tilted endless wall drifting diagonally (scale, 'everything in one place'), a filmstrip that steps card to card with the label above swapping (features, use cases), or a mosaic that slides in and lifts one card to fill the frame (hand-over into a product scene).",
+    props: `items: [asset id or {media, label?}] 3-12 uploaded screenshots or photos. layout?: "wall" (default) | "carousel" | "mosaic". title?, kicker?, highlight?: over the wall. portraitCards?: true for phone screens. focus?: index of the mosaic card that lifts; liftAt?: seconds.`,
+    example: { layout: "carousel", items: [{ media: "<asset-id>", label: "VAT" }, { media: "<asset-id>", label: "PAYE" }, { media: "<asset-id>", label: "WHT" }] },
+    seconds: [3, 6],
+  },
+  {
+    name: "hero",
+    use: "Device hero: the product on a phone, laptop or browser rising in with a gentle 3D lean, small UI pieces (notifications, balances, ticks, chat bubbles) floating around it at different depths, headline beside it. App launches, feature reveals.",
+    props: `image?: asset id of a screenshot for the screen. device?: "phone" (default) | "laptop" | "browser". chips?: [{text, sub?, icon?}] up to 6 floating pieces (e.g. {text: "VAT filed", icon: "circle-check"}). kicker?, title?, sub?, highlight?. tilt?: "none" | "left" | "right" | "back".`,
+    example: { device: "phone", image: "<asset-id>", title: "Your Taxes, On Autopilot", chips: [{ text: "VAT filed", icon: "circle-check" }, { text: "₦100,379 due", sub: "21 Nov", icon: "calendar-clock" }] },
+    seconds: [3.5, 6],
   },
   {
     name: "custom",
@@ -170,4 +207,4 @@ export const ICON_NAMES = [
   "database", "code", "terminal", "webhook", "mouse-pointer-click", "wand-sparkles", "brain-circuit",
 ];
 
-export const TRANSITIONS = ["cut", "fade", "push", "slide-up", "wipe", "zoom"] as const;
+export const TRANSITIONS = ["cut", "fade", "push", "slide-up", "wipe", "zoom", "star", "mark", "stack", "blob", "whip", "through"] as const;

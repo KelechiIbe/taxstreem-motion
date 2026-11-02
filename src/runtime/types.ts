@@ -3,7 +3,7 @@
 
 export type Format = "9:16" | "1:1" | "16:9";
 export type Theme = "light" | "dark" | "blue";
-export type TransitionKind = "cut" | "fade" | "push" | "slide-up" | "wipe" | "zoom";
+export type TransitionKind = "cut" | "fade" | "push" | "slide-up" | "wipe" | "zoom" | "star" | "mark" | "stack" | "blob" | "whip" | "through";
 
 export interface SceneSpec {
   id: string;
@@ -122,6 +122,8 @@ export interface Script {
   idea: string;
   /** Everything else the team gave: audience, purpose, key message, facts to use, things to avoid, and the gist of attached documents. */
   context?: string;
+  /** The video template (blueprint id) the script follows. */
+  blueprint?: string;
   audience?: string;
   platform?: string;
   format: Format;
