@@ -81,10 +81,14 @@ self.onmessage = async (e: MessageEvent) => {
         break;
       }
       case "seek":
-        if (comp && pctx) {
-          const before = comp.warnings.size;
-          await seekPreview(m.t);
-          if (comp.warnings.size !== before) post({ type: "warnings", warnings: [...comp.warnings] });
+        try {
+          if (comp && pctx) {
+            const before = comp.warnings.size;
+            await seekPreview(m.t);
+            if (comp.warnings.size !== before) post({ type: "warnings", warnings: [...comp.warnings] });
+          }
+        } finally {
+          post({ type: "seeked" });
         }
         break;
       case "sheet": {
