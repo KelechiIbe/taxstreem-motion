@@ -36,13 +36,20 @@ export interface AudioSpec {
   duck?: boolean;
 }
 
+export type PaletteSpec = "brand" | "look" | { primary?: string; secondary?: string; tertiary?: string; ink?: string; paper?: string };
+
 export interface VideoSpec {
   version: 1;
   title: string;
   /** Format the team is designing for; the same spec renders in all three. */
   format: Format;
   fps?: number;
-  theme: Theme;
+  /** Style: fonts, backgrounds, surfaces and motion feel. See looks.ts. Defaults to "taxstreem". */
+  look?: string;
+  /** Colours: "brand" (TaxStreem, the default), "look" (the style's own colourway) or custom hex colours. */
+  palette?: PaletteSpec;
+  /** Default background for scenes. Defaults to the look's default. */
+  theme?: Theme;
   scenes: SceneSpec[];
   audio?: AudioSpec;
   /** Burned-in captions from the voiceover's word timings. */
@@ -62,7 +69,7 @@ export interface Word {
 /** Facts about an asset the runtime and the prompt both need. */
 export interface AssetInfo {
   id: string;
-  kind: "image" | "audio" | "voice";
+  kind: "image" | "audio" | "voice" | "video" | "reference";
   name: string;
   width?: number;
   height?: number;
@@ -78,4 +85,40 @@ export interface SceneTiming {
   type: string;
   start: number;
   duration: number;
+}
+
+/** One beat of an approved script: what is said, what is shown, and for how long. */
+export interface ScriptScene {
+  id: string;
+  /** Voiceover line (spoken). Empty when the scene is silent or music-only. */
+  vo: string;
+  /** Words on screen, verbatim. */
+  onScreen: string;
+  /** What the viewer sees: template idea, media, camera, motion. */
+  visual: string;
+  seconds: number;
+  /** Asset ids (or stock:/generate: requests) the scene should use. */
+  media?: string[];
+}
+
+/** The editable script a video is built from. */
+export interface Script {
+  title: string;
+  /** The core idea and context the team gave. */
+  idea: string;
+  audience?: string;
+  platform?: string;
+  format: Format;
+  look: string;
+  palette?: PaletteSpec;
+  /** Target length in seconds. */
+  length: number;
+  /** Mood and pacing for music, if any. */
+  music?: string;
+  /** Direction for the voiceover read, if any. */
+  voiceDirection?: string;
+  scenes: ScriptScene[];
+  notes?: string;
+  /** Set when the team approves it for building. */
+  approvedAt?: string;
 }

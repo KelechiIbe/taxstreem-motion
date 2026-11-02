@@ -16,7 +16,17 @@ const STARTERS = [
   "A 6-second logo sting with the tagline Make taxes clearer for everyone.",
 ];
 
+const SCRIPT_STARTERS = [
+  "Core idea: Meet Martina, TaxStreem's AI tax assistant.\nContext: business owners ask tax questions in plain English and she answers from Nigerian tax rules and their own books.\nAudience: SME owners on Instagram. Style: techy and glassy. About 25 seconds with a voiceover.",
+  "Core idea: VAT is due on the 21st and TaxStreem files it for you.\nContext: \nAudience: \nPlatform and length: LinkedIn, 30 seconds. Style: corporate.",
+  "Replicate the sample I've attached for TaxStreem's e-invoicing launch. Keep its pacing and layout, use our colours.",
+  "Use this YouTube video as the reference for style and pacing: ",
+];
+
+const KIND_LABEL: Record<string, string> = { image: "Image", video: "Clip", reference: "Sample", voice: "Voiceover", audio: "Music" };
+
 export function Chat(p: {
+  mode: "script" | "video";
   messages: MessageRow[];
   job: { kind: string; message: string; created_at: string } | null;
   lastError: string | null;
@@ -35,7 +45,10 @@ export function Chat(p: {
   const [drag, setDrag] = useState(false);
   const end = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(Date.now());
-  useEffect(() => end.current?.scrollIntoView({ behavior: "smooth" }), [p.messages.length, p.job?.message]);
+  // newer Chrome returns a promise from scrollIntoView; an effect must not return it
+  useEffect(() => {
+    end.current?.scrollIntoView({ behavior: "smooth" });
+  }, [p.messages.length, p.job?.message]);
   useEffect(() => {
     if (!p.job) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -50,7 +63,7 @@ export function Chat(p: {
   const pick = () => {
     const i = document.createElement("input");
     i.type = "file";
-    i.accept = "image/*,audio/*";
+    i.accept = "image/*,audio/*,video/*,.mov,.mp4,.webm,.m4v";
     i.multiple = true;
     i.onchange = () => p.onFiles([...(i.files ?? [])]);
     i.click();
@@ -73,10 +86,14 @@ export function Chat(p: {
       <div className="msgs">
         {p.messages.length === 0 && (
           <div className="intro">
-            <h3>What are we making?</h3>
-            <p className="muted small">Describe the video: the message, who it's for, where it'll be posted and how long. Drop in product screenshots, a voiceover or a track from Envato. Claude builds a first cut from TaxStreem's scene templates, checks the rendered frames, and you refine it here.</p>
+            <h3>{p.mode === "script" ? "What's the idea?" : "What are we making?"}</h3>
+            <p className="muted small">
+              {p.mode === "script"
+                ? "Share the core idea and the context: what it should say, who it's for, where it'll be posted, how long and the style. Attach screenshots, footage, a voiceover or a sample video to replicate, or paste a YouTube link. Claude writes an editable script; approve it and the video is built from it."
+                : "Describe the video: the message, who it's for, where it'll be posted and how long. Drop in product screenshots, footage, a voiceover or a track from Envato. Claude builds a first cut, checks the rendered frames, and you refine it here."}
+            </p>
             <div className="stack">
-              {STARTERS.map((s) => (
+              {(p.mode === "script" ? SCRIPT_STARTERS : STARTERS).map((s) => (
                 <button key={s} className="starter" onClick={() => setText(s)}>{s}</button>
               ))}
             </div>
@@ -101,7 +118,7 @@ export function Chat(p: {
               const a = p.assets.get(id);
               return (
                 <span key={id} className="chip">
-                  {a?.kind === "image" ? "Screenshot" : a?.kind === "voice" ? "Voiceover" : "Music"}: {a?.name ?? id}
+                  {KIND_LABEL[a?.kind ?? ""] ?? "File"}: {a?.name ?? id}
                   <button onClick={() => p.setPending((x) => x.filter((y) => y !== id))} aria-label="Remove">×</button>
                 </span>
               );
@@ -110,7 +127,15 @@ export function Chat(p: {
         )}
         <textarea
           value={text}
-          placeholder={p.empty ? "Describe the video you want…" : "Ask for a change: “slow scene 3 down”, “make the hook punchier”, “use the blue theme for the stat”…"}
+          placeholder={
+            p.mode === "script"
+              ? p.empty
+                ? "Core idea and context…"
+                : "Ask for a script change: “shorter hook”, “add a scene about deadlines”, “make it punchier”…"
+              : p.empty
+                ? "Describe the video you want…"
+                : "Ask for a change: “slow scene 3 down”, “make the hook punchier”, “try the editorial style”…"
+          }
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -122,7 +147,7 @@ export function Chat(p: {
         />
         <div className="row between">
           <div className="row">
-            <button className="btn ghost small" onClick={pick} title="Screenshots or music">Attach</button>
+            <button className="btn ghost small" onClick={pick} title="Images, clips, samples or audio">Attach</button>
             <button className="btn ghost small" onClick={p.onVoice}>Voiceover</button>
           </div>
           <button className="btn primary small" disabled={p.disabled || (!text.trim() && !p.pending.length)} onClick={submit}>
@@ -165,6 +190,7 @@ function Message({ m, assets, onViewVersion, current }: { m: MessageRow; assets:
           )}
         </div>
       )}
+      {m.role === "assistant" && m.data?.script ? <span className="vchip static">Script updated</span> : null}
       {m.data?.version ? (
         <button className="vchip" onClick={() => onViewVersion(m.data.version)}>
           {m.data.version === current ? `Version ${m.data.version} (current)` : `View version ${m.data.version}`}

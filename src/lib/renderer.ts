@@ -1,5 +1,4 @@
 // Main-thread handle on the renderer worker.
-import { fetchFonts } from "../runtime/fonts";
 import type { Format, SceneTiming, VideoSpec, Word } from "../runtime/types";
 import RendererWorker from "../runtime/worker?worker";
 
@@ -11,14 +10,13 @@ export interface Loaded {
   warnings: string[];
 }
 
-let fontCache: Promise<{ range: string; data: ArrayBuffer }[]> | null = null;
-
 export class Renderer {
   private worker: Worker;
   private pending = new Map<string, Pending>();
   private loadWaiter: Pending | null = null;
   private ready: Promise<void>;
   private sent = new Set<string>();
+  private videos = new Set<string>();
   onWarnings: (w: string[]) => void = () => {};
 
   constructor() {
@@ -44,8 +42,7 @@ export class Renderer {
       if (m.type === "error") p.reject(new Error(m.message));
       else p.resolve(m);
     };
-    fontCache ??= fetchFonts();
-    fontCache.then((fonts) => this.worker.postMessage({ type: "init", fonts: fonts.map((f) => ({ range: f.range, data: f.data.slice(0) })) }));
+    this.worker.postMessage({ type: "init" });
   }
 
   attach(canvas: HTMLCanvasElement) {
@@ -55,6 +52,16 @@ export class Renderer {
 
   hasImage(id: string) {
     return this.sent.has(id);
+  }
+
+  hasVideo(id: string) {
+    return this.videos.has(id);
+  }
+
+  /** Hands a video clip to the worker, which decodes its frames on demand. */
+  sendVideo(id: string, blob: Blob, t = 0): Promise<{ ok: boolean; duration?: number; width?: number; height?: number; hasAudio?: boolean; message?: string }> {
+    this.videos.add(id);
+    return this.call({ type: "video", assetId: id, blob, t });
   }
 
   sendImages(images: Record<string, ImageBitmap>, t = 0) {

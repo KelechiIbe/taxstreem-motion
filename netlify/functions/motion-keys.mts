@@ -2,7 +2,7 @@ import { body, handle, HttpError, json } from "./_lib/http";
 import { requireUser } from "./_lib/db";
 import { getKey, keyStatus, saveKey, type KeyName } from "./_lib/keys";
 
-const NAMES: KeyName[] = ["anthropic", "elevenlabs"];
+const NAMES: KeyName[] = ["anthropic", "elevenlabs", "pexels"];
 
 export default handle(async (req) => {
   if (req.method === "GET") {
@@ -17,11 +17,14 @@ export default handle(async (req) => {
     const res =
       b.name === "anthropic"
         ? await fetch("https://api.anthropic.com/v1/models?limit=1", { headers: { "x-api-key": key, "anthropic-version": "2023-06-01" } })
-        : await fetch("https://api.elevenlabs.io/v1/user", { headers: { "xi-api-key": key } });
+        : b.name === "pexels"
+          ? await fetch("https://api.pexels.com/v1/search?query=office&per_page=1", { headers: { Authorization: key } })
+          : await fetch("https://api.elevenlabs.io/v1/user", { headers: { "xi-api-key": key } });
     if (!res.ok) {
       const out: any = await res.json().catch(() => ({}));
-      const why = out?.error?.message || out?.detail?.message || out?.detail || res.statusText;
-      throw new HttpError(400, `${b.name === "anthropic" ? "Anthropic" : "ElevenLabs"} refused the key (${res.status}): ${typeof why === "string" ? why : JSON.stringify(why)}`);
+      const why = out?.error?.message || out?.detail?.message || out?.detail || out?.error || res.statusText;
+      const label = b.name === "anthropic" ? "Anthropic" : b.name === "pexels" ? "Pexels" : "ElevenLabs";
+      throw new HttpError(400, `${label} refused the key (${res.status}): ${typeof why === "string" ? why : JSON.stringify(why)}`);
     }
     return json({ message: "The key works." });
   }

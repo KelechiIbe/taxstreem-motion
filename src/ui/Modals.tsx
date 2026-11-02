@@ -29,10 +29,10 @@ interface Voice {
   source: string;
 }
 
-export function VoiceModal({ projectId, onClose, onCreated, onUpload }: { projectId: string; onClose: () => void; onCreated: (a: AssetRow) => void; onUpload: (f: File) => void }) {
+export function VoiceModal({ projectId, onClose, onCreated, onUpload, initialText = "", direction }: { projectId: string; onClose: () => void; onCreated: (a: AssetRow) => void; onUpload: (f: File) => void; initialText?: string; direction?: string }) {
   const [voices, setVoices] = useState<{ cast: Voice[]; library: Voice[]; note: string } | null>(null);
   const [voiceId, setVoiceId] = useState("");
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
@@ -66,6 +66,7 @@ export function VoiceModal({ projectId, onClose, onCreated, onUpload }: { projec
   return (
     <Modal title="Voiceover" onClose={onClose}>
       <p className="muted small" style={{ margin: 0 }}>Generate it with ElevenLabs (word timings come back with it, so captions and cuts follow the voice), or upload a recording and it will be transcribed for timings.</p>
+      {direction && <p className="small" style={{ margin: 0 }}><strong>Direction from the script:</strong> {direction}</p>}
       <label className="field">
         <span>Script</span>
         <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder="Your VAT return shouldn't take a whole weekend. TaxStreem works out what you owe from every sale and purchase…" />

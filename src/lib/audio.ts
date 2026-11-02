@@ -95,11 +95,14 @@ export interface MixInput {
   voiceVolume?: number;
   voiceDelay?: number;
   duck?: boolean;
+  /** Sound from video clips used in scenes. */
+  clips?: { buffer: AudioBuffer | null; at: number; from: number; duration: number; speed: number; volume: number }[];
 }
 
 /** Renders the voice and music into one stereo track of exactly `duration` seconds. */
 export async function mix(o: MixInput): Promise<AudioBuffer | null> {
-  if (!o.music && !o.voice) return null;
+  const clips = (o.clips ?? []).filter((c) => c.buffer && c.volume > 0);
+  if (!o.music && !o.voice && !clips.length) return null;
   const len = Math.max(1, Math.ceil(o.duration * RATE));
   const off = new OfflineAudioContext(2, len, RATE);
   const end = o.duration;
@@ -133,6 +136,22 @@ export async function mix(o: MixInput): Promise<AudioBuffer | null> {
     g.gain.value = o.voiceVolume ?? 1;
     src.connect(g).connect(off.destination);
     src.start(Math.max(0, o.voiceDelay ?? 0));
+  }
+  // sound from video clips placed in scenes, faded at the cuts
+  for (const c of clips) {
+    const src = off.createBufferSource();
+    src.buffer = c.buffer;
+    src.playbackRate.value = c.speed || 1;
+    const g = off.createGain();
+    const a = Math.max(0, c.at);
+    const b = Math.min(end, c.at + c.duration);
+    if (b <= a) continue;
+    g.gain.setValueAtTime(0, a);
+    g.gain.linearRampToValueAtTime(c.volume, a + 0.12);
+    g.gain.setValueAtTime(c.volume, Math.max(a + 0.13, b - 0.15));
+    g.gain.linearRampToValueAtTime(0, b);
+    src.connect(g).connect(off.destination);
+    src.start(a, Math.max(0, c.from), (b - a) * (c.speed || 1));
   }
   return off.startRendering();
 }

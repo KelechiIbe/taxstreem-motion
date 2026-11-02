@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "title": "Media and UI templates",
+  "format": "9:16",
+  "theme": "light",
+  "scenes": [
+    { "id": "media", "type": "media", "duration": 3.5, "props": { "media": "clip", "kicker": "Real businesses", "headline": "Built for the way Lagos works", "highlight": ["Lagos"], "sub": "From market stalls to multinationals." } },
+    { "id": "split", "type": "split", "duration": 4, "props": { "media": "photo1", "kicker": "Meet Ada", "title": "She files VAT in ten minutes", "bullets": ["Linked her bank once", "Reviews every return", "Never misses the 21st"] } },
+    { "id": "collage", "type": "collage", "duration": 4, "props": { "headline": "Send. Save. File.", "highlight": ["File."], "items": [ { "media": "photo1", "caption": "Ada, Lagos" }, { "media": "photo2" }, { "media": "clip" }, { "media": "photo4", "caption": "Kunle, Abuja" } ] } },
+    { "id": "icons", "type": "icons", "duration": 3.5, "props": { "kicker": "One platform", "title": "Every tax you pay", "items": [ { "icon": "receipt", "label": "VAT" }, { "icon": "landmark", "label": "CIT" }, { "icon": "users", "label": "PAYE", "highlight": true }, { "icon": "percent", "label": "WHT" }, { "icon": "file-check", "label": "Returns" }, { "icon": "calendar-clock", "label": "Deadlines" } ] } },
+    { "id": "orbit", "type": "icons", "duration": 3.5, "theme": "dark", "props": { "layout": "orbit", "items": [ { "icon": "receipt" }, { "icon": "landmark" }, { "icon": "users" }, { "icon": "percent" }, { "icon": "wallet" }, { "icon": "bot" } ] } },
+    { "id": "kinetic", "type": "kinetic", "duration": 3.6, "theme": "dark", "props": { "lines": ["Meet", { "text": "Martina", "highlight": true }, "your tax assistant"] } },
+    { "id": "stack", "type": "kinetic", "duration": 4, "props": { "mode": "stack", "lines": ["No spreadsheets.", "No queues.", { "text": "No penalties.", "highlight": true }] } },
+    { "id": "button", "type": "ui", "duration": 3.5, "props": { "kind": "button", "label": "File my VAT", "icon": "send", "after": "Filed" } },
+    { "id": "prompt", "type": "ui", "duration": 4, "theme": "dark", "props": { "kind": "prompt", "title": "Just ask", "placeholder": "Ask Martina", "text": "How much VAT do I owe this month?", "chips": ["WHT on rent", "File CIT", "Deadlines"] } },
+    { "id": "notifs", "type": "ui", "duration": 4, "props": { "kind": "notifications", "title": "Never miss a deadline", "items": [ { "title": "VAT due in 5 days", "body": "Your return is ready to review.", "icon": "calendar-clock" }, { "title": "Payment received", "body": "₦250,000 from Kudi Ltd", "icon": "banknote" }, { "title": "Return filed", "body": "FIRS acknowledged your June VAT.", "time": "2m" } ] } },
+    { "id": "picker", "type": "ui", "duration": 4, "props": { "kind": "picker", "title": "Pick your tax", "items": [ { "label": "Value Added Tax", "icon": "receipt" }, { "label": "Withholding Tax", "icon": "percent" }, { "label": "Company Income Tax", "icon": "landmark" }, { "label": "PAYE", "icon": "users" } ], "selected": 2, "result": "CIT, sorted." } },
+    { "id": "toggles", "type": "ui", "duration": 3.5, "props": { "kind": "toggles", "title": "Automate everything", "items": [ { "label": "Auto-file VAT", "sub": "On the 15th", "icon": "receipt" }, { "label": "Deadline alerts", "icon": "bell" }, { "label": "Bank sync", "sub": "Daily", "icon": "refresh-cw" } ] } },
+    { "id": "payment", "type": "ui", "duration": 4, "props": { "kind": "payment", "title": "Tax paid", "amount": 1250000, "prefix": "₦", "rows": [ { "label": "Tax type", "value": "VAT, June" }, { "label": "Reference", "value": "TS-48213" } ], "status": "Filed with FIRS" } },
+    { "id": "chat", "type": "ui", "duration": 5, "props": { "kind": "chat", "title": "Ask anything", "messages": [ { "from": "user", "text": "Do I need to charge VAT?" }, { "from": "bot", "text": "Yes. Your turnover passed ₦25M, so register and charge 7.5%." }, { "from": "user", "text": "Can you file it for me?" } ] } },
+    { "id": "shot", "type": "screenshot", "duration": 4, "props": { "video": "clip", "title": "Watch it work", "tilt": "left" } }
+  ]
+}
