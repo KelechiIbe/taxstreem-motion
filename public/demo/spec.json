@@ -1,0 +1,245 @@
+{
+ "version": 1,
+ "title": "File VAT In Minutes",
+ "format": "9:16",
+ "theme": "light",
+ "scenes": [
+  {
+   "id": "hook",
+   "type": "title",
+   "duration": 3.2,
+   "theme": "blue",
+   "props": {
+    "kicker": "VAT \u00b7 Monthly filing",
+    "headline": "Your VAT Return Shouldn't Take A Whole Weekend",
+    "highlight": [
+     "VAT",
+     "Return"
+    ],
+    "sub": "TaxStreem prepares it from your transactions."
+   }
+  },
+  {
+   "id": "stat",
+   "type": "stat",
+   "duration": 3.4,
+   "transition": "slide-up",
+   "props": {
+    "kicker": "Last 30 days",
+    "value": 100379.38,
+    "prefix": "\u20a6",
+    "decimals": 2,
+    "label": "VAT payable, worked out for you",
+    "sub": "From every sale and purchase on your linked accounts.",
+    "badge": "20% vs last month",
+    "bar": 0.72
+   }
+  },
+  {
+   "id": "product",
+   "type": "screenshot",
+   "duration": 5.6,
+   "transition": "push",
+   "props": {
+    "image": "demo-dashboard",
+    "url": "app.taxstreem.com/dashboard",
+    "kicker": "Dashboard",
+    "title": "Every Tax In One View",
+    "focus": [
+     {
+      "x": 0.6,
+      "y": 0.19,
+      "w": 0.18,
+      "h": 0.23,
+      "at": 1.6,
+      "label": "VAT payable"
+     },
+     {
+      "x": 0.675,
+      "y": 0.45,
+      "w": 0.3,
+      "h": 0.48,
+      "at": 3.4,
+      "label": "Deadlines tracked"
+     }
+    ],
+    "cursor": [
+     {
+      "x": 0.69,
+      "y": 0.33,
+      "at": 2.3
+     },
+     {
+      "x": 0.75,
+      "y": 0.55,
+      "at": 4.2
+     }
+    ]
+   }
+  },
+  {
+   "id": "steps",
+   "type": "steps",
+   "duration": 4.6,
+   "transition": "fade",
+   "props": {
+    "kicker": "How it works",
+    "title": "Three Steps To Filed",
+    "steps": [
+     {
+      "title": "Link your bank",
+      "body": "Transactions flow in daily."
+     },
+     {
+      "title": "Review the schedule",
+      "body": "VAT is computed line by line."
+     },
+     {
+      "title": "File on Rev360",
+      "body": "We submit it for you."
+     }
+    ]
+   }
+  },
+  {
+   "id": "features",
+   "type": "features",
+   "duration": 4.2,
+   "transition": "slide-up",
+   "props": {
+    "title": "Built For Nigerian Businesses",
+    "items": [
+     {
+      "title": "VAT, WHT and CIT",
+      "body": "Schedules prepared from real transactions.",
+      "icon": "receipt"
+     },
+     {
+      "title": "Deadline reminders",
+      "body": "Never miss the 21st again.",
+      "icon": "calendar-clock"
+     },
+     {
+      "title": "Audit-ready records",
+      "body": "Every figure traced to its source.",
+      "icon": "shield-check"
+     }
+    ]
+   }
+  },
+  {
+   "id": "deadline",
+   "type": "deadline",
+   "duration": 3.6,
+   "transition": "wipe",
+   "props": {
+    "kicker": "Next deadline",
+    "day": 21,
+    "month": "Nov",
+    "title": "October VAT Is Due",
+    "sub": "File by the 21st to avoid penalties.",
+    "countdown": "19 days left"
+   }
+  },
+  {
+   "id": "chart",
+   "type": "chart",
+   "duration": 4.0,
+   "transition": "fade",
+   "theme": "dark",
+   "props": {
+    "kicker": "Time spent filing",
+    "title": "Hours Back Every Month",
+    "data": [
+     {
+      "label": "Manual",
+      "value": 14
+     },
+     {
+      "label": "Spreadsheet",
+      "value": 9
+     },
+     {
+      "label": "TaxStreem",
+      "value": 1
+     }
+    ],
+    "suffix": "h",
+    "highlight": 2
+   }
+  },
+  {
+   "id": "compare",
+   "type": "compare",
+   "duration": 4.4,
+   "transition": "push",
+   "props": {
+    "title": "Filing, Before And After",
+    "left": {
+     "title": "Without TaxStreem",
+     "items": [
+      "Receipts in folders",
+      "Manual VAT sums",
+      "Late fees"
+     ]
+    },
+    "right": {
+     "title": "With TaxStreem",
+     "items": [
+      "Bank-linked records",
+      "Schedules prepared",
+      "Filed on time"
+     ]
+    }
+   }
+  },
+  {
+   "id": "quote",
+   "type": "quote",
+   "duration": 4.0,
+   "transition": "fade",
+   "props": {
+    "text": "We closed our books and filed VAT the same afternoon.",
+    "highlight": [
+     "same",
+     "afternoon."
+    ],
+    "author": "Ada Okafor",
+    "role": "Founder, sample customer"
+   }
+  },
+  {
+   "id": "statement",
+   "type": "statement",
+   "duration": 4.2,
+   "transition": "zoom",
+   "theme": "blue",
+   "props": {
+    "text": "TaxStreem Is A Modern Tax Automation Platform That Helps Individuals And Businesses Handle Taxes With Ease"
+   }
+  },
+  {
+   "id": "cta",
+   "type": "cta",
+   "duration": 4.0,
+   "transition": "fade",
+   "theme": "blue",
+   "props": {
+    "headline": "Make Taxes Clearer For Everyone",
+    "cta": "Start now",
+    "url": "taxstreem.com",
+    "click": true
+   }
+  },
+  {
+   "id": "sting",
+   "type": "logo",
+   "duration": 2.6,
+   "transition": "fade",
+   "theme": "light",
+   "props": {
+    "tagline": "Make taxes clearer for everyone."
+   }
+  }
+ ]
+}
